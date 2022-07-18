@@ -76,12 +76,12 @@ func main() {
     if err != nil {
         log.Fatalf("unable to connect to device %s: %v", opts.Address, err)
     }
-	defer dev.Disconnect()
-	stdout, stderr, err := dev.Shell("ls")
+    defer dev.Disconnect()
+    stdout, stderr, err := dev.Shell("ls")
     if err != nil {
         log.Fatalf("unable to shell into device %s: %v", opts.Address, err)
     }
-	log.Printf("Stdout: %s\nStderr: %s\n", stdout, stderr)
+    log.Printf("Stdout: %s\nStderr: %s\n", stdout, stderr)
 }
 ```
 
