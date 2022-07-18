@@ -4,7 +4,8 @@
 This library aims at providing idiomatic `adb` bindings for go developers, in order to make it easier to write system tooling using golang.
 This tool tries to take guesswork out of arbitrarily shelling out to `adb` by providing a structured, thoroughly-tested wrapper for the `adb` functions most-likely to be used in a system program.
 
-If `adb` must be installed in your path `PATH`.
+If `adb` must be installed in your path `PATH`. At this time, while this library may work on Windows or MacOS, only Linux is supported.
+If you would like to add support for Windows, MacOS, *BSD..., please [Submit a Pull Request](https://github.com/taigrr/adb/pulls).
 
 ## What is adb
 
@@ -75,10 +76,12 @@ func main() {
     if err != nil {
         log.Fatalf("unable to connect to device %s: %v", opts.Address, err)
     }
-	err = dev.Disconnect()
+	defer dev.Disconnect()
+	stdout, stderr, err := dev.Shell("ls")
     if err != nil {
-        log.Fatalf("unable to disconnect from device %s: %v", opts.Address, err)
+        log.Fatalf("unable to shell into device %s: %v", opts.Address, err)
     }
+	log.Printf("Stdout: %s\nStderr: %s\n", stdout, stderr)
 }
 ```
 
