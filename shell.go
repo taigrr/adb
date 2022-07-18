@@ -15,6 +15,12 @@ func (d Device) Shell(ctx context.Context, command string) (stdout string, stder
 	return "", "", 1, nil
 }
 
+// adb shell wm size
+// Physical size: 1440x3120
+func (d Device) GetScreenResolution(ctx context.Context) (width int, lenght int, err error) {
+	return 0, 0, nil
+}
+
 func (d Device) Tap(ctx context.Context, X, Y int) error {
 	return nil
 }
