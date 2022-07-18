@@ -2,6 +2,7 @@ package adb
 
 import (
 	"context"
+	"log"
 	"time"
 )
 
@@ -64,6 +65,27 @@ type TapSequence struct {
 	Events []Input
 }
 
+// ShortenSleep allows you to shorten all the sleep times between tap and swipe events.
+//
+// Provide a scalar value to divide the sleeps by. Providing `2` will halve all
+// sleep durations in the TapSequence. Swipe durations and tap durations are
+// unaffected.
+
+func (t TapSequence) ShortenSleep(scalar int) TapSequence {
+	seq := []Input{}
+	for _, s := range t.Events {
+		switch y := s.(type) {
+		case SequenceSleep:
+			y.Duration = y.Duration / time.Duration(scalar)
+			seq = append(seq, y)
+		default:
+			seq = append(seq, s)
+		}
+	}
+	t.Events = seq
+	return t
+}
+
 // GetLength returns the length of all Input events inside of a given TapSequence
 //
 // This function is useful for devermining how long a context timeout should
@@ -87,5 +109,14 @@ func (d Device) ReplayTapSequence(ctx context.Context, t TapSequence) error {
 }
 
 func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) {
+	// this command will never finish, and always returns error code 130 if successful
+	stdout, _, errCode, err := execute(ctx, []string{"shell", "getevent", "-tl"})
+	if errCode != 130 {
+		log.Printf("Expected error code 130, but got \n", errCode)
+	}
+	if stdout == "" {
+		return TapSequence{}, ErrStdoutEmpty
+	}
+
 	return TapSequence{}, nil
 }

@@ -14,6 +14,10 @@ const (
 	Network
 )
 
+// Create a Device with Connect() or a slice with Devices()
+//
+// Device contains the information necessary to connect to and 
+// communicate with a device
 type Device struct {
 	SerialNo   Serial
 	ConnType   Connection
@@ -21,6 +25,7 @@ type Device struct {
 	FileHandle string // TODO change this to a discrete type
 }
 
+// Provides a connection string for Connect() 
 type ConnOptions struct {
 	Address  net.IPAddr
 	SerialNo Serial
