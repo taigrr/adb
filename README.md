@@ -23,8 +23,8 @@ If you would like to add support for Windows, MacOS, *BSD..., please [Submit a P
 - [ ] `adb install`
 - [ ] `adb push`
 - [ ] `adb reboot`
-- [ ] `adb tap X Y`
-- [ ] `adb swipe X1 Y1 X2 Y2 duration`
+- [ ] `adb shell input tap X Y`
+- [ ] `adb shell input swipe X1 Y1 X2 Y2 duration`
 
 Please note that as this is a purpose-driven project library, not all functionality of ADB is currently supported, but if you need functionality that's not currently supported,
 Feel free to [Open an Issue](https://github.com/taigrr/adb/issues) or [Submit a Pull Request](https://github.com/taigrr/adb/pulls)

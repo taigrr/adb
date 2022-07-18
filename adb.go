@@ -3,7 +3,6 @@ package adb
 import (
 	"context"
 	"net"
-	"sync"
 )
 
 type Serial string
@@ -16,12 +15,10 @@ const (
 )
 
 type Device struct {
-	IsConnected bool
-	SerialNo    Serial
-	ConnType    Connection
-	IP          net.IPAddr
-	FileHandle  string // TODO change this to a discrete type
-	Lock        sync.Mutex
+	SerialNo   Serial
+	ConnType   Connection
+	IP         net.IPAddr
+	FileHandle string // TODO change this to a discrete type
 }
 
 type ConnOptions struct {
@@ -59,4 +56,49 @@ func Devices(ctx context.Context) ([]Device, error) {
 // If a device is already disconnected or otherwise not found, returns an error.
 func (d Device) Disconnect(ctx context.Context) error {
 	return nil
+}
+
+// Kill the ADB Server
+//
+// Warning, this function call may cause inconsostency if nto used properly.
+// Killing the ADB server shouldn't ever technically be necessary, but if you do
+// decide to use this function. note that it may invalidate all existing device structs.
+// Older versions of Android don't play nicely with kill-server, and some may
+// refuse following connection attempts if you don't disconnect from them before
+// calling this function.
+func KillServer(ctx context.Context) error {
+	return nil
+}
+
+// Push a file to a Device.
+//
+// Returns an error if src does not exist or there is an error copying the file.
+func (d Device) Push(ctx context.Context, src, dest string) error {
+	return nil
+}
+
+// Pulls a file from a Device
+//
+// Returns an error if src does not exist, or if dest already exists or cannot be created
+func (d Device) Pull(ctx context.Context, src, dest string) error {
+	return nil
+}
+
+// Attempts to reboot the device
+//
+// Once the device reboots, you must manually reconnect.
+// Returns an error if the device cannot be contacted
+func (d Device) Reboot(ctx context.Context) error {
+	return nil
+}
+
+// Attempt to relaunch adb as root on the Device.
+//
+// Note, this may not be possible on most devices.
+// Returns an error if it can't be done.
+// The device connection will stay established.
+// Once adb is relaunched as root, it will stay root until rebooted.
+// returns true if the device successfully relaunched as root
+func (d Device) Root(ctx context.Context) (success bool, err error) {
+	return true, nil
 }
