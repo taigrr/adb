@@ -19,6 +19,14 @@ func (d Device) Tap(ctx context.Context, X, Y int) error {
 	return nil
 }
 
+// Simulates a long press
+//
+// Under the hood, this calls swipe with the same start and end coordinates
+// with a duration of 250ms
+func (d Device) LongPress(ctx context.Context, X, Y int) error {
+	return nil
+}
+
 func (d Device) Swipe(ctx context.Context, X1, Y1, X2, Y2 int, duration time.Duration) error {
 	return nil
 }
