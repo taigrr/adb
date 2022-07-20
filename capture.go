@@ -30,9 +30,18 @@ func (s SequenceSleep) Length() time.Duration {
 	return s.Duration
 }
 
+func (s SequenceSleep) StartTime() time.Time{
+	return time.Time{}
+}
+
+func (s SequenceSwipe) StartTime() time.Time{
+	return s.Start
+}
 type SequenceTap struct {
-	X int
-	Y int
+	X     int
+	Y     int
+	Start time.Time
+	End   time.Time
 }
 
 func (s SequenceTap) Play(d Device, ctx context.Context) error {
@@ -43,16 +52,25 @@ func (s SequenceTap) Length() time.Duration {
 	return 0
 }
 
+func (s SequenceSwipe) StartTime() time.Time{
+	return s.Start
+}
 type SequenceSwipe struct {
 	X1       int
 	Y1       int
 	X2       int
 	Y2       int
 	Duration time.Duration
+	Start    time.Time
+	End      time.Time
 }
 
 func (s SequenceSwipe) Play(d Device, ctx context.Context) error {
 	return d.Swipe(ctx, s.X1, s.Y1, s.X2, s.Y2, s.Duration)
+}
+
+func (s SequenceSwipe) StartTime() time.Time{
+	return s.Start
 }
 
 func (s SequenceSwipe) Length() time.Duration {
@@ -62,6 +80,8 @@ func (s SequenceSwipe) Length() time.Duration {
 type Input interface {
 	Play(d Device, ctx context.Context) error
 	Length() time.Duration
+	StartTime() time.Time
+	EndTime() time.Time
 }
 
 type TapSequence struct {
@@ -173,12 +193,27 @@ func parseGetEvent(input string) (events []Input) {
 	return
 }
 
-func touchesToInputs([][]event) []Input {
-	return []Input{}
+func touchesToInputs(events []eventSet) []Input {
+	inputs := []Input{}
+	for _, eventSet := range events {
+		i, err := eventSet.ToInput()
+		if err != nil {
+			inputs = append(inputs, i)
+		}
+	}
+	return inputs
 }
 
-func getEventSlices(events []event) [][]event {
-	eventSets := [][]event{{}}
+type eventSet []event
+
+func (e eventSet) ToInput() (Input, error) {
+	var i Input
+	//	i =
+	return i, nil
+}
+
+func getEventSlices(events []event) []eventSet {
+	eventSets := []eventSet{{}}
 	current := 0
 	foundDown := false
 	for _, e := range events {
@@ -197,7 +232,6 @@ func getEventSlices(events []event) [][]event {
 		}
 	}
 	eventSets = eventSets[:len(eventSets)-1]
-	// fmt.Println(eventSets[len(eventSets)-1])
 	return eventSets
 }
 
