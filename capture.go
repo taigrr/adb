@@ -3,6 +3,9 @@ package adb
 import (
 	"context"
 	"log"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -95,7 +98,7 @@ func (t TapSequence) GetLength() time.Duration {
 	for _, x := range t.Events {
 		duration += x.Length()
 	}
-	return duration
+	return duration * 110 / 100
 }
 
 func (d Device) ReplayTapSequence(ctx context.Context, t TapSequence) error {
@@ -108,15 +111,73 @@ func (d Device) ReplayTapSequence(ctx context.Context, t TapSequence) error {
 	return nil
 }
 
+//CaptureSequence allows you to capture and replay screen taps and swipes.
+//
+// ctx, cancelFunc := context.WithCancel(context.TODO())
+//
+// go dev.CaptureSequence(ctx)
+// time.Sleep(time.Second * 30)
+// cancelFunc()
 func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) {
 	// this command will never finish, and always returns error code 130 if successful
 	stdout, _, errCode, err := execute(ctx, []string{"shell", "getevent", "-tl"})
 	if errCode != 130 {
-		log.Printf("Expected error code 130, but got \n", errCode)
+		log.Printf("Expected error code 130, but got %d\n", errCode)
 	}
 	if stdout == "" {
 		return TapSequence{}, ErrStdoutEmpty
 	}
-
+	t.Events = parseGetEvent(stdout)
 	return TapSequence{}, nil
+}
+
+type Event struct {
+	TimeStamp  time.Time
+	DevicePath string
+	Type       string
+	Key        string
+	Value      string
+}
+
+func parseGetEvent(input string) (events []Input) {
+	lines := strings.Split(input, "\n")
+	lines = trimDeviceDescriptors(lines)
+	// Trim off the beginning with device descriptors
+	return
+}
+
+func parseInputToEvent(input []string) []Event {
+	var e []Event
+	r := regexp.MustCompile(`\[\W*(\d+\.\d+)]`)
+	for _, line := range input {
+		var l Event
+		timeStr := r.FindStringSubmatch(line)
+		if len(timeStr) != 2 {
+			continue
+		}
+		f, err := strconv.ParseFloat(timeStr[1], 32)
+		if err != nil {
+			continue
+		}
+		msec := int64(f * 1000)
+		l.TimeStamp = time.UnixMilli(msec)
+		e = append(e, l)
+	}
+	// fmt.Println(e[0].TimeStamp.Sub(e[len(e)-1].TimeStamp))
+
+	return e
+}
+
+func trimDeviceDescriptors(input []string) []string {
+	start := 0
+	for i, line := range input {
+		if strings.Contains(line, "DOWN") {
+			start = i
+			break
+		}
+	}
+	for i := range input {
+		input[i] = strings.TrimSpace(input[i])
+	}
+	return input[start:]
 }
