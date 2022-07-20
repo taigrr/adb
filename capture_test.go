@@ -40,6 +40,28 @@ func TestParseInputToEvent(t *testing.T) {
 	}
 }
 
+func TestGetEventSlices(t *testing.T) {
+	testCases := []struct {
+		name          string
+		testFile      string
+		touchSetCount int
+	}{
+		{"pixel", pixel, 7},
+		{"tablet", tablet, 8},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := strings.Split(tc.testFile, "\n")
+			lines = trimDeviceDescriptors(lines)
+			touchEvents := parseInputToEvent(lines)
+			touches := getEventSlices(touchEvents)
+			if len(touches) != tc.touchSetCount {
+				t.Errorf("Expected %d touches but found %d", tc.touchSetCount, len(touches))
+			}
+		})
+	}
+}
+
 func TestTrimDeviceDescriptors(t *testing.T) {
 	testCases := []struct {
 		name     string

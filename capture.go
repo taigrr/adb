@@ -131,7 +131,7 @@ func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) 
 	return TapSequence{}, nil
 }
 
-type Event struct {
+type event struct {
 	TimeStamp  time.Time
 	DevicePath string
 	Type       string
@@ -139,20 +139,75 @@ type Event struct {
 	Value      string
 }
 
+func (e event) isBTNTouch() bool {
+	return e.Key == "BTN_TOUCH"
+}
+
+func (e event) isEvABS() bool {
+	return e.Type == "EV_ABS"
+}
+
+func (e event) isBTNUp() bool {
+	return e.isBTNTouch() && e.Value == "UP"
+}
+
+func (e event) isBTNDown() bool {
+	return e.isBTNTouch() && e.Value == "DOWN"
+}
+
+func (e event) GetNumeric() (int, error) {
+	i, err := strconv.ParseInt(e.Value, 16, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int(i), nil
+}
+
 func parseGetEvent(input string) (events []Input) {
 	lines := strings.Split(input, "\n")
 	lines = trimDeviceDescriptors(lines)
+	touchEvents := parseInputToEvent(lines)
+	touches := getEventSlices(touchEvents)
+	events = touchesToInputs(touches)
 	// Trim off the beginning with device descriptors
 	return
 }
 
-func parseInputToEvent(input []string) []Event {
-	var e []Event
-	r := regexp.MustCompile(`\[\W*(\d+\.\d+)]`)
+func touchesToInputs([][]event) []Input {
+	return []Input{}
+}
+
+func getEventSlices(events []event) [][]event {
+	eventSets := [][]event{{}}
+	current := 0
+	foundDown := false
+	for _, e := range events {
+		if !foundDown {
+			if e.isBTNDown() {
+				foundDown = true
+			} else {
+				continue
+			}
+		}
+		eventSets[current] = append(eventSets[current], e)
+		if e.isBTNUp() {
+			current++
+			foundDown = false
+			eventSets = append(eventSets, []event{})
+		}
+	}
+	eventSets = eventSets[:len(eventSets)-1]
+	// fmt.Println(eventSets[len(eventSets)-1])
+	return eventSets
+}
+
+func parseInputToEvent(input []string) []event {
+	var e []event
+	r := regexp.MustCompile(`\[\s*(\d+\.\d+)]\s*(.*):\s*(\w*)\s*(\w*)\s*(\w*)`)
 	for _, line := range input {
-		var l Event
+		var l event
 		timeStr := r.FindStringSubmatch(line)
-		if len(timeStr) != 2 {
+		if len(timeStr) != 6 {
 			continue
 		}
 		f, err := strconv.ParseFloat(timeStr[1], 32)
@@ -161,9 +216,12 @@ func parseInputToEvent(input []string) []Event {
 		}
 		msec := int64(f * 1000)
 		l.TimeStamp = time.UnixMilli(msec)
+		l.DevicePath = timeStr[2]
+		l.Type = timeStr[3]
+		l.Key = timeStr[4]
+		l.Value = timeStr[5]
 		e = append(e, l)
 	}
-	// fmt.Println(e[0].TimeStamp.Sub(e[len(e)-1].TimeStamp))
 
 	return e
 }
@@ -179,5 +237,5 @@ func trimDeviceDescriptors(input []string) []string {
 	for i := range input {
 		input[i] = strings.TrimSpace(input[i])
 	}
-	return input[start:]
+	return input[start : len(input)-1]
 }
