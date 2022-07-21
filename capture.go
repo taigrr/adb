@@ -30,13 +30,14 @@ func (s SequenceSleep) Length() time.Duration {
 	return s.Duration
 }
 
-func (s SequenceSleep) StartTime() time.Time{
+func (s SequenceSleep) StartTime() time.Time {
 	return time.Time{}
 }
 
-func (s SequenceSwipe) StartTime() time.Time{
-	return s.Start
+func (s SequenceSleep) EndTime() time.Time {
+	return time.Time{}
 }
+
 type SequenceTap struct {
 	X     int
 	Y     int
@@ -52,9 +53,14 @@ func (s SequenceTap) Length() time.Duration {
 	return 0
 }
 
-func (s SequenceSwipe) StartTime() time.Time{
+func (s SequenceTap) StartTime() time.Time {
 	return s.Start
 }
+
+func (s SequenceTap) EndTime() time.Time {
+	return s.End
+}
+
 type SequenceSwipe struct {
 	X1       int
 	Y1       int
@@ -69,8 +75,12 @@ func (s SequenceSwipe) Play(d Device, ctx context.Context) error {
 	return d.Swipe(ctx, s.X1, s.Y1, s.X2, s.Y2, s.Duration)
 }
 
-func (s SequenceSwipe) StartTime() time.Time{
+func (s SequenceSwipe) StartTime() time.Time {
 	return s.Start
+}
+
+func (s SequenceSwipe) EndTime() time.Time {
+	return s.End
 }
 
 func (s SequenceSwipe) Length() time.Duration {
