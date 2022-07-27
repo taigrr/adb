@@ -62,17 +62,16 @@ func (s SequenceTap) EndTime() time.Time {
 }
 
 type SequenceSwipe struct {
-	X1       int
-	Y1       int
-	X2       int
-	Y2       int
-	Duration time.Duration
-	Start    time.Time
-	End      time.Time
+	X1    int
+	Y1    int
+	X2    int
+	Y2    int
+	Start time.Time
+	End   time.Time
 }
 
 func (s SequenceSwipe) Play(d Device, ctx context.Context) error {
-	return d.Swipe(ctx, s.X1, s.Y1, s.X2, s.Y2, s.Duration)
+	return d.Swipe(ctx, s.X1, s.Y1, s.X2, s.Y2, s.Length())
 }
 
 func (s SequenceSwipe) StartTime() time.Time {
@@ -84,7 +83,7 @@ func (s SequenceSwipe) EndTime() time.Time {
 }
 
 func (s SequenceSwipe) Length() time.Duration {
-	return s.Duration
+	return s.End.Sub(s.Start)
 }
 
 type Input interface {
@@ -141,7 +140,7 @@ func (d Device) ReplayTapSequence(ctx context.Context, t TapSequence) error {
 	return nil
 }
 
-//CaptureSequence allows you to capture and replay screen taps and swipes.
+// CaptureSequence allows you to capture and replay screen taps and swipes.
 //
 // ctx, cancelFunc := context.WithCancel(context.TODO())
 //
@@ -149,16 +148,18 @@ func (d Device) ReplayTapSequence(ctx context.Context, t TapSequence) error {
 // time.Sleep(time.Second * 30)
 // cancelFunc()
 func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) {
-	// this command will never finish, and always returns error code 130 if successful
+	// this command will never finish without ctx expiring. As a result,
+	// it will always return error code 130 if successful
 	stdout, _, errCode, err := execute(ctx, []string{"shell", "getevent", "-tl"})
 	if errCode != 130 {
+		// TODO remove log output here
 		log.Printf("Expected error code 130, but got %d\n", errCode)
 	}
 	if stdout == "" {
 		return TapSequence{}, ErrStdoutEmpty
 	}
 	t.Events = parseGetEvent(stdout)
-	return TapSequence{}, nil
+	return
 }
 
 type event struct {
@@ -175,6 +176,14 @@ func (e event) isBTNTouch() bool {
 
 func (e event) isEvABS() bool {
 	return e.Type == "EV_ABS"
+}
+
+func (e event) isPositionY() bool {
+	return e.isEvABS() && e.Key == "ABS_MT_POSITION_Y"
+}
+
+func (e event) isPositionX() bool {
+	return e.isEvABS() && e.Key == "ABS_MT_POSITION_X"
 }
 
 func (e event) isBTNUp() bool {
@@ -199,7 +208,7 @@ func parseGetEvent(input string) (events []Input) {
 	touchEvents := parseInputToEvent(lines)
 	touches := getEventSlices(touchEvents)
 	events = touchesToInputs(touches)
-	// Trim off the beginning with device descriptors
+	events = insertSleeps(events)
 	return
 }
 
@@ -207,7 +216,7 @@ func touchesToInputs(events []eventSet) []Input {
 	inputs := []Input{}
 	for _, eventSet := range events {
 		i, err := eventSet.ToInput()
-		if err != nil {
+		if err == nil {
 			inputs = append(inputs, i)
 		}
 	}
@@ -216,12 +225,93 @@ func touchesToInputs(events []eventSet) []Input {
 
 type eventSet []event
 
-func (e eventSet) ToInput() (Input, error) {
-	var i Input
-	//	i =
-	return i, nil
+func insertSleeps(inputs []Input) []Input {
+	sleepingInputs := []Input{}
+	for i, input := range inputs {
+		if i != 0 {
+			prev := sleepingInputs[len(sleepingInputs)-1].EndTime()
+			curr := input.EndTime()
+			var sleep SequenceSleep
+			sleep.Duration = curr.Sub(prev)
+			sleepingInputs = append(sleepingInputs, sleep)
+		}
+		sleepingInputs = append(sleepingInputs, input)
+	}
+	return sleepingInputs
 }
 
+// trawls through the list of events in a set.
+// the returned Input is always a swipe, as android can automatically
+// decide to treat a swipe as a tap if necessary.
+// taps are made available to the end user should they be manually set
+// but it's safer to just use swipes as there's no chance of accidentally
+// treating a swipe as a tap when guessing at the duration and distance
+// between the touch down and pick up loci
+func (e eventSet) ToInput() (Input, error) {
+	var (
+		swipe          SequenceSwipe
+		startx, starty int64
+		xFound, yFound = false, false
+		endx, endy     int64
+	)
+	var err error
+	for i := 0; i < len(e); i++ {
+		if xFound && yFound {
+			break
+		}
+		if e[i].isPositionX() {
+			xFound = true
+			startx, err = strconv.ParseInt(e[i].Value, 16, 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if e[i].isPositionY() {
+			yFound = true
+			starty, err = strconv.ParseInt(e[i].Value, 16, 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+	}
+	if !xFound || !yFound {
+		return nil, ErrCoordinatesNotFound
+	}
+	xFound, yFound = false, false
+	for i := len(e) - 1; i >= 0; i-- {
+		if xFound && yFound {
+			break
+		}
+		if e[i].isPositionX() {
+			xFound = true
+			endx, err = strconv.ParseInt(e[i].Value, 16, 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if e[i].isPositionY() {
+			yFound = true
+			endy, err = strconv.ParseInt(e[i].Value, 16, 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+	}
+	swipe.X1 = int(startx)
+	swipe.X2 = int(endx)
+	swipe.Y1 = int(starty)
+	swipe.Y2 = int(endy)
+	swipe.Start = e[0].TimeStamp
+	swipe.End = e[len(e)-1].TimeStamp
+	return swipe, err
+}
+
+// Accepts a slice of events
+// returns a slice of eventSets, where an eventSet is a group of events
+// guaranteed to start with a DOWN event and end with an UP event,
+// containing exactly one of each
 func getEventSlices(events []event) []eventSet {
 	eventSets := []eventSet{{}}
 	current := 0
