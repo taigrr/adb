@@ -3,6 +3,7 @@ package adb
 import (
 	"context"
 	"net"
+	"os"
 )
 
 type Serial string
@@ -16,7 +17,7 @@ const (
 
 // Create a Device with Connect() or a slice with Devices()
 //
-// Device contains the information necessary to connect to and 
+// Device contains the information necessary to connect to and
 // communicate with a device
 type Device struct {
 	SerialNo   Serial
@@ -25,7 +26,7 @@ type Device struct {
 	FileHandle string // TODO change this to a discrete type
 }
 
-// Provides a connection string for Connect() 
+// Provides a connection string for Connect()
 type ConnOptions struct {
 	Address  net.IPAddr
 	SerialNo Serial
@@ -65,7 +66,7 @@ func (d Device) Disconnect(ctx context.Context) error {
 
 // Kill the ADB Server
 //
-// Warning, this function call may cause inconsostency if nto used properly.
+// Warning, this function call may cause inconsostency if not used properly.
 // Killing the ADB server shouldn't ever technically be necessary, but if you do
 // decide to use this function. note that it may invalidate all existing device structs.
 // Older versions of Android don't play nicely with kill-server, and some may
@@ -79,6 +80,15 @@ func KillServer(ctx context.Context) error {
 //
 // Returns an error if src does not exist or there is an error copying the file.
 func (d Device) Push(ctx context.Context, src, dest string) error {
+	_, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	stdout, stderr, errcode, err := execute(ctx, []string{"push", src, dest})
+	if err != nil {
+		return err
+	}
+	// TODO check the return strings of the output to determine if the file copy succeeded
 	return nil
 }
 
