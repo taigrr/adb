@@ -12,6 +12,7 @@ import (
 // Instead of using Shell, please consider submitting a PR with the functionality
 // you require.
 func (d Device) Shell(ctx context.Context, command string) (stdout string, stderr string, ErrCode int, err error) {
+
 	return "", "", 1, nil
 }
 
