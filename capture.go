@@ -95,7 +95,12 @@ type Input interface {
 }
 
 type TapSequence struct {
-	Events []Input
+	Events     []Input
+	Resolution Resolution
+}
+type Resolution struct {
+	Width  int
+	Height int
 }
 
 // ShortenSleep allows you to shorten all the sleep times between tap and swipe events.

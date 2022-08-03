@@ -28,26 +28,26 @@ func (d Device) Shell(ctx context.Context, command string) (stdout string, stder
 
 // adb shell wm size
 // Physical size: 1440x3120
-func (d Device) GetScreenResolution(ctx context.Context) (width int, height int, err error) {
+func (d Device) GetScreenResolution(ctx context.Context) (res Resolution, err error) {
 	cmd := []string{"-s", string(d.SerialNo), "shell", "wm", "size"}
 	stdout, _, _, err := execute(ctx, cmd)
 	if err != nil {
-		return -1, -1, err
+		return Resolution{Width: -1, Height: -1}, err
 	}
 	return parseScreenResolution(stdout)
 }
 
 // Parses input, example:
 // Physical size: 1440x3040
-func parseScreenResolution(in string) (int, int, error) {
+func parseScreenResolution(in string) (Resolution, error) {
 	r := regexp.MustCompile(`Physical size: ([0-9]+)x([0-9]+)`)
 	resStr := r.FindStringSubmatch(in)
 	if len(resStr) != 3 {
-		return -1, -1, ErrResolutionParseFail
+		return Resolution{Width: -1, Height: -1}, ErrResolutionParseFail
 	}
 	w, _ := strconv.Atoi(resStr[1])
 	h, _ := strconv.Atoi(resStr[2])
-	return w, h, nil
+	return Resolution{Width: w, Height: h}, nil
 }
 
 func (d Device) Tap(ctx context.Context, X, Y int) error {
@@ -89,7 +89,7 @@ func (d Device) GoHome(ctx context.Context) error {
 	return err
 }
 
-//Equivalent to pressing the back button
+// Equivalent to pressing the back button
 //
 // Calls `input keyevent KEYCODE_BACK` under the hood
 func (d Device) GoBack(ctx context.Context) error {

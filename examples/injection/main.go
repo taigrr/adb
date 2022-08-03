@@ -26,7 +26,7 @@ func main() {
 			fmt.Printf("Dev `%s` is not authorized, authorize it to continue.\n", dev.SerialNo)
 			continue
 		}
-		err := dev.GoHome(ctx)
+		err := dev.Reboot(ctx)
 		if err != nil {
 			// handle error here
 			fmt.Printf("Error: %v\n", err)
