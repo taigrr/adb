@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/taigrr/adb"
 )
@@ -15,7 +16,8 @@ func init() {
 }
 
 func main() {
-	ctx := context.TODO()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
 	devs, err := adb.Devices(ctx)
 	if err != nil {
 		fmt.Printf("Error enumerating devices: %v\n", err)
@@ -26,11 +28,18 @@ func main() {
 			fmt.Printf("Dev `%s` is not authorized, authorize it to continue.\n", dev.SerialNo)
 			continue
 		}
-		w, h, err := dev.GetScreenResolution(ctx)
+		//w, h, err := dev.GetScreenResolution(ctx)
+		//if err != nil {
+		//	// handle error here
+		//	fmt.Printf("Error: %v\n", err)
+		//}
+		fmt.Printf("Begin tapping on device %s now...\n", dev.SerialNo)
+		t, err := dev.CaptureSequence(ctx)
 		if err != nil {
-			// handle error here
-			fmt.Printf("Error: %v\n", err)
+			fmt.Printf("Error capturing sequence: %v\n", err)
+			return
 		}
-		fmt.Printf("%s screen resolution: %dx%d\n", dev.SerialNo, w, h)
+		fmt.Println("Sequence captured, replaying now...")
+		dev.ReplayTapSequence(context.TODO(), t)
 	}
 }

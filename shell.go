@@ -51,7 +51,13 @@ func parseScreenResolution(in string) (int, int, error) {
 }
 
 func (d Device) Tap(ctx context.Context, X, Y int) error {
-	return nil
+	cmd := []string{
+		"-s", string(d.SerialNo), "shell",
+		"input", "tap",
+		strconv.Itoa(X), strconv.Itoa(Y),
+	}
+	_, _, _, err := execute(ctx, cmd)
+	return err
 }
 
 // Simulates a long press
@@ -59,30 +65,44 @@ func (d Device) Tap(ctx context.Context, X, Y int) error {
 // Under the hood, this calls swipe with the same start and end coordinates
 // with a duration of 250ms
 func (d Device) LongPress(ctx context.Context, X, Y int) error {
-	return nil
+	return d.Swipe(ctx, X, Y, X, Y, time.Millisecond*250)
 }
 
 func (d Device) Swipe(ctx context.Context, X1, Y1, X2, Y2 int, duration time.Duration) error {
-	return nil
+	cmd := []string{
+		"-s", string(d.SerialNo), "shell",
+		"input", "swipe",
+		strconv.Itoa(X1), strconv.Itoa(Y1),
+		strconv.Itoa(X2), strconv.Itoa(Y2),
+		strconv.Itoa(int(duration.Milliseconds())),
+	}
+	_, _, _, err := execute(ctx, cmd)
+	return err
 }
 
 // Equivalent to pressing the home button
 //
 // Calls `input keyevent KEYCODE_HOME` under the hood
 func (d Device) GoHome(ctx context.Context) error {
-	return nil
+	cmd := []string{"-s", string(d.SerialNo), "shell", "input", "keyevent", "KEYCODE_HOME"}
+	_, _, _, err := execute(ctx, cmd)
+	return err
 }
 
 //Equivalent to pressing the back button
 //
 // Calls `input keyevent KEYCODE_BACK` under the hood
 func (d Device) GoBack(ctx context.Context) error {
-	return nil
+	cmd := []string{"-s", string(d.SerialNo), "shell", "input", "keyevent", "KEYCODE_BACK"}
+	_, _, _, err := execute(ctx, cmd)
+	return err
 }
 
 // Equivalent to pushing the app switcher. You probably want to call this twice.
 //
 // Calls `input keyevent KEYCODE_APP_SWITCH` under the hood
 func (d Device) SwitchApp(ctx context.Context) error {
-	return nil
+	cmd := []string{"-s", string(d.SerialNo), "shell", "input", "keyevent", "KEYCODE_APP_SWITCH"}
+	_, _, _, err := execute(ctx, cmd)
+	return err
 }

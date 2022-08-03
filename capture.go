@@ -2,6 +2,7 @@ package adb
 
 import (
 	"context"
+	"errors"
 	"log"
 	"regexp"
 	"strconv"
@@ -151,10 +152,15 @@ func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) 
 	// this command will never finish without ctx expiring. As a result,
 	// it will always return error code 130 if successful
 	stdout, _, errCode, err := execute(ctx, []string{"shell", "getevent", "-tl"})
-	if errCode != 130 {
-		// TODO remove log output here
-		log.Printf("Expected error code 130, but got %d\n", errCode)
+	// TODO better error checking here
+	if errors.Is(err, ErrUnspecified) {
+		err = nil
 	}
+	if errCode != 130 && errCode != -1 {
+		// TODO remove log output here
+		log.Printf("Expected error code 130 or -1, but got %d\n", errCode)
+	}
+
 	if stdout == "" {
 		return TapSequence{}, ErrStdoutEmpty
 	}
