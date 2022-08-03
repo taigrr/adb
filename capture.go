@@ -154,6 +154,10 @@ func (d Device) ReplayTapSequence(ctx context.Context, t TapSequence) error {
 // time.Sleep(time.Second * 30)
 // cancelFunc()
 func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) {
+	t.Resolution, err = d.GetScreenResolution(ctx)
+	if err != nil {
+		return
+	}
 	// this command will never finish without ctx expiring. As a result,
 	// it will always return error code 130 if successful
 	stdout, _, errCode, err := execute(ctx, []string{"shell", "getevent", "-tl"})
