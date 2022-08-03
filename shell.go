@@ -3,6 +3,8 @@ package adb
 import (
 	"context"
 	"time"
+
+	"github.com/google/shlex"
 )
 
 // Shell allows you to run an arbitrary shell command against a device.
@@ -12,8 +14,14 @@ import (
 // Instead of using Shell, please consider submitting a PR with the functionality
 // you require.
 func (d Device) Shell(ctx context.Context, command string) (stdout string, stderr string, ErrCode int, err error) {
-
-	return "", "", 1, nil
+	cmd, err := shlex.Split(command)
+	if err != nil {
+		return "", "", 1, err
+	}
+	prefix := []string{"-s", string(d.SerialNo), "shell"}
+	cmd = append(prefix, cmd...)
+	stdout, stderr, errcode, err := execute(ctx, cmd)
+	return stdout, stderr, errcode, err
 }
 
 // adb shell wm size

@@ -47,7 +47,7 @@ func execute(ctx context.Context, args []string) (string, string, int, error) {
 	if customErr != nil {
 		err = customErr
 	}
-	if code != 0 && err == nil {
+	if _, ok := err.(*exec.ExitError); ok && code != 0 {
 		err = fmt.Errorf("received error code %d for stderr `%s`: %w", code, warnings, ErrUnspecified)
 	}
 

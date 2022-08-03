@@ -38,7 +38,7 @@ type ConnOptions struct {
 	SerialNo Serial
 }
 
-// Connect to a device by serial number or IP.
+// Connect to a device by IP:port.
 //
 // This will return a Device struct, which can be used to call other methods.
 // If the connection fails or cannot complete on time, Connect will return an error.
