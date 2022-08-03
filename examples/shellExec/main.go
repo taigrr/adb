@@ -8,8 +8,14 @@ import (
 	"github.com/taigrr/adb"
 )
 
+var command string
+
+func init() {
+	// TODO  allow for any input to be used as the command
+	command = "ls"
+}
+
 func main() {
-	command := "ls"
 	ctx := context.TODO()
 	devs, err := adb.Devices(ctx)
 	if err != nil {
