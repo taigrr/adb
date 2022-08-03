@@ -17,8 +17,34 @@ import (
 // Instead of using Shell, please consider submitting a PR with the functionality
 // you require.
 
+type SeqType int
+
+const (
+	SeqSwipe SeqType = iota
+	SeqTap
+	SeqSleep
+)
+
+type TapSequenceImporter struct {
+	Events     []SequenceImporter
+	Resolution Resolution
+}
+
+type SequenceImporter struct {
+	Duration time.Duration
+	Type     SeqType
+	X        int
+	Y        int
+	X1       int
+	Y1       int
+	X2       int
+	Y2       int
+	Start    time.Time
+	End      time.Time
+}
 type SequenceSleep struct {
 	Duration time.Duration
+	Type     SeqType
 }
 
 func (s SequenceSleep) Play(d Device, ctx context.Context) error {
@@ -44,6 +70,7 @@ type SequenceTap struct {
 	Y     int
 	Start time.Time
 	End   time.Time
+	Type  SeqType
 }
 
 func (s SequenceTap) Play(d Device, ctx context.Context) error {
@@ -69,6 +96,7 @@ type SequenceSwipe struct {
 	Y2    int
 	Start time.Time
 	End   time.Time
+	Type  SeqType
 }
 
 func (s SequenceSwipe) Play(d Device, ctx context.Context) error {
@@ -248,6 +276,7 @@ func insertSleeps(inputs []Input) []Input {
 			curr := input.EndTime()
 			var sleep SequenceSleep
 			sleep.Duration = curr.Sub(prev)
+			sleep.Type = SeqSleep
 			sleepingInputs = append(sleepingInputs, sleep)
 		}
 		sleepingInputs = append(sleepingInputs, input)
@@ -320,6 +349,7 @@ func (e eventSet) ToInput() (Input, error) {
 	swipe.Y2 = int(endy)
 	swipe.Start = e[0].TimeStamp
 	swipe.End = e[len(e)-1].TimeStamp
+	swipe.Type = SeqSwipe
 	return swipe, err
 }
 

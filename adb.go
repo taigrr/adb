@@ -42,6 +42,7 @@ type ConnOptions struct {
 //
 // This will return a Device struct, which can be used to call other methods.
 // If the connection fails or cannot complete on time, Connect will return an error.
+// TODO
 func Connect(ctx context.Context, opts ConnOptions) (Device, error) {
 	if opts.Port == 0 {
 		opts.Port = 5555
