@@ -2,6 +2,7 @@ package adb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"regexp"
@@ -42,6 +43,29 @@ type SequenceImporter struct {
 	Start    time.Time
 	End      time.Time
 }
+
+func (si SequenceImporter) ToInput() Input {
+	switch si.Type {
+	case SeqSleep:
+		return SequenceSleep{Duration: si.Duration, Type: SeqSleep}
+	case SeqSwipe:
+		return SequenceSwipe{
+			X1: si.X1, Y1: si.Y1,
+			X2: si.X2, Y2: si.Y2,
+			Start: si.Start,
+			End:   si.End, Type: SeqSwipe,
+		}
+	case SeqTap:
+		return SequenceTap{
+			X: si.X, Y: si.Y,
+			Start: si.Start,
+			End:   si.End, Type: SeqTap,
+		}
+	default:
+		return SequenceSleep{Duration: time.Millisecond * 0, Type: SeqSleep}
+	}
+}
+
 type SequenceSleep struct {
 	Duration time.Duration
 	Type     SeqType
@@ -131,6 +155,25 @@ type Resolution struct {
 	Height int
 }
 
+func (t TapSequence) ToJSON() []byte {
+	b, _ := json.Marshal(t)
+	return b
+}
+
+func TapSequenceFromJSON(j []byte) (TapSequence, error) {
+	var ti TapSequenceImporter
+	var t TapSequence
+	err := json.Unmarshal(j, &ti)
+	if err != nil {
+		return t, err
+	}
+	t.Resolution = ti.Resolution
+	for _, ie := range ti.Events {
+		t.Events = append(t.Events, ie.ToInput())
+	}
+	return t, nil
+}
+
 // ShortenSleep allows you to shorten all the sleep times between tap and swipe events.
 //
 // Provide a scalar value to divide the sleeps by. Providing `2` will halve all
@@ -188,12 +231,12 @@ func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) 
 	}
 	// this command will never finish without ctx expiring. As a result,
 	// it will always return error code 130 if successful
-	stdout, _, errCode, err := execute(ctx, []string{"shell", "getevent", "-tl"})
+	stdout, _, errCode, err := execute(ctx, []string{"-s", string(d.SerialNo), "shell", "getevent", "-tl"})
 	// TODO better error checking here
 	if errors.Is(err, ErrUnspecified) {
 		err = nil
 	}
-	if errCode != 130 && errCode != -1 {
+	if errCode != 130 && errCode != -1 && errCode != 1 {
 		// TODO remove log output here
 		log.Printf("Expected error code 130 or -1, but got %d\n", errCode)
 	}

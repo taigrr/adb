@@ -8,13 +8,6 @@ import (
 	"github.com/taigrr/adb"
 )
 
-var command string
-
-func init() {
-	// TODO  allow for any input to be used as the command
-	command = "ls"
-}
-
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
@@ -28,11 +21,6 @@ func main() {
 			fmt.Printf("Dev `%s` is not authorized, authorize it to continue.\n", dev.SerialNo)
 			continue
 		}
-		//w, h, err := dev.GetScreenResolution(ctx)
-		//if err != nil {
-		//	// handle error here
-		//	fmt.Printf("Error: %v\n", err)
-		//}
 		fmt.Printf("Begin tapping on device %s now...\n", dev.SerialNo)
 		t, err := dev.CaptureSequence(ctx)
 		if err != nil {
