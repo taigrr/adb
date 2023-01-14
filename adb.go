@@ -97,6 +97,7 @@ func Devices(ctx context.Context) ([]Device, error) {
 	return parseDevices(stdout)
 }
 
+// TODO add support for connected network devices
 func parseDevices(stdout string) ([]Device, error) {
 	devs := []Device{}
 	lines := strings.Split(stdout, "\n")
@@ -119,7 +120,11 @@ func parseDevices(stdout string) ([]Device, error) {
 //
 // If a device is already disconnected or otherwise not found, returns an error.
 func (d Device) Disconnect(ctx context.Context) error {
-	return nil
+	if d.ConnType != Network {
+		return ErrConnUSB
+	}
+	_, _, _, err := execute(ctx, []string{"-s", d.ConnString(), "disconnect"})
+	return err
 }
 
 // Kill the ADB Server
@@ -131,7 +136,8 @@ func (d Device) Disconnect(ctx context.Context) error {
 // refuse following connection attempts if you don't disconnect from them before
 // calling this function.
 func KillServer(ctx context.Context) error {
-	return nil
+	_, _, _, err := execute(ctx, []string{"kill-server"})
+	return err
 }
 
 // Push a file to a Device.
