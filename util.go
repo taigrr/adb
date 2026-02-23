@@ -10,8 +10,6 @@ import (
 
 var adb string
 
-const killed = 130
-
 func init() {
 	path, err := exec.LookPath("adb")
 	if err != nil {
