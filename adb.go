@@ -127,11 +127,11 @@ func (d Device) Disconnect(ctx context.Context) error {
 	return err
 }
 
-// Kill the ADB Server
+// KillServer kills the ADB server.
 //
-// Warning, this function call may cause inconsostency if not used properly.
+// Warning: this function call may cause inconsistency if not used properly.
 // Killing the ADB server shouldn't ever technically be necessary, but if you do
-// decide to use this function. note that it may invalidate all existing device structs.
+// decide to use this function, note that it may invalidate all existing device structs.
 // Older versions of Android don't play nicely with kill-server, and some may
 // refuse following connection attempts if you don't disconnect from them before
 // calling this function.
@@ -148,71 +148,70 @@ func (d Device) Push(ctx context.Context, src, dest string) error {
 	if err != nil {
 		return err
 	}
-	stdout, stderr, errcode, err := execute(ctx, []string{"push", src, dest})
+	_, _, errcode, err := execute(ctx, []string{"-s", string(d.SerialNo), "push", src, dest})
 	if err != nil {
 		return err
 	}
 	if errcode != 0 {
 		return ErrUnspecified
 	}
-	_, _ = stdout, stderr
-	// TODO check the return strings of the output to determine if the file copy succeeded
 	return nil
 }
 
-// Pulls a file from a Device
+// Pull a file from a Device.
 //
-// Returns an error if src does not exist, or if dest already exists or cannot be created
+// Returns an error if dest already exists or the file cannot be pulled.
 func (d Device) Pull(ctx context.Context, src, dest string) error {
-	_, err := os.Stat(src)
+	_, err := os.Stat(dest)
+	if err == nil {
+		return ErrDestExists
+	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	stdout, stderr, errcode, err := execute(ctx, []string{"pull", src, dest})
+	_, _, errcode, err := execute(ctx, []string{"-s", string(d.SerialNo), "pull", src, dest})
 	if err != nil {
 		return err
 	}
 	if errcode != 0 {
 		return ErrUnspecified
 	}
-	_, _ = stdout, stderr
-	// TODO check the return strings of the output to determine if the file copy succeeded
 	return nil
 }
 
-// Attempts to reboot the device
+// Reboot attempts to reboot the device.
 //
 // Once the device reboots, you must manually reconnect.
-// Returns an error if the device cannot be contacted
+// Returns an error if the device cannot be contacted.
 func (d Device) Reboot(ctx context.Context) error {
-	stdout, stderr, errcode, err := execute(ctx, []string{"reboot"})
+	_, _, errcode, err := execute(ctx, []string{"-s", string(d.SerialNo), "reboot"})
 	if err != nil {
 		return err
 	}
 	if errcode != 0 {
 		return ErrUnspecified
 	}
-	_, _ = stdout, stderr
-	// TODO check the return strings of the output to determine if the file copy succeeded
 	return nil
 }
 
-// Attempt to relaunch adb as root on the Device.
+// Root attempts to relaunch adb as root on the Device.
 //
 // Note, this may not be possible on most devices.
 // Returns an error if it can't be done.
 // The device connection will stay established.
 // Once adb is relaunched as root, it will stay root until rebooted.
-// returns true if the device successfully relaunched as root
+// Returns true if the device successfully relaunched as root.
 func (d Device) Root(ctx context.Context) (success bool, err error) {
-	stdout, stderr, errcode, err := execute(ctx, []string{"root"})
+	stdout, _, errcode, err := execute(ctx, []string{"-s", string(d.SerialNo), "root"})
 	if err != nil {
 		return false, err
 	}
 	if errcode != 0 {
 		return false, ErrUnspecified
 	}
-	_, _ = stdout, stderr
-	// TODO check the return strings of the output to determine if the file copy succeeded
-	return true, nil
+	if strings.Contains(stdout, "adbd is already running as root") ||
+		strings.Contains(stdout, "restarting adbd as root") {
+		return true, nil
+	}
+	return false, nil
 }

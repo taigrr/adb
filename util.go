@@ -4,16 +4,18 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os/exec"
+	"sync"
 )
 
-var adb string
+var (
+	adb     string
+	adbOnce sync.Once
+)
 
-func init() {
+func findADB() {
 	path, err := exec.LookPath("adb")
 	if err != nil {
-		log.Printf("%v", ErrNotInstalled)
 		adb = ""
 		return
 	}
@@ -21,25 +23,24 @@ func init() {
 }
 
 func execute(ctx context.Context, args []string) (string, string, int, error) {
-	var (
-		err      error
-		stderr   bytes.Buffer
-		stdout   bytes.Buffer
-		code     int
-		output   string
-		warnings string
-	)
+	adbOnce.Do(findADB)
 
 	if adb == "" {
-		panic(ErrNotInstalled)
+		return "", "", -1, ErrNotInstalled
 	}
+
+	var (
+		stderr bytes.Buffer
+		stdout bytes.Buffer
+	)
+
 	cmd := exec.CommandContext(ctx, adb, args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err = cmd.Run()
-	output = stdout.String()
-	warnings = stderr.String()
-	code = cmd.ProcessState.ExitCode()
+	err := cmd.Run()
+	output := stdout.String()
+	warnings := stderr.String()
+	code := cmd.ProcessState.ExitCode()
 
 	customErr := filterErr(warnings)
 	if customErr != nil {
