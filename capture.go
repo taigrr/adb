@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -236,10 +235,7 @@ func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) 
 	if errors.Is(err, ErrUnspecified) {
 		err = nil
 	}
-	if errCode != 130 && errCode != -1 && errCode != 1 {
-		// TODO remove log output here
-		log.Printf("Expected error code 130 or -1, but got %d\n", errCode)
-	}
+	_ = errCode
 
 	if stdout == "" {
 		return TapSequence{}, ErrStdoutEmpty

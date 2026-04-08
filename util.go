@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 )
 
@@ -56,7 +57,22 @@ func execute(ctx context.Context, args []string) (string, string, int, error) {
 // filterErr matches known output strings against the stderr.
 //
 // The inferred error type is then returned.
-// TODO: implement
 func filterErr(stderr string) error {
-	return nil
+	if stderr == "" {
+		return nil
+	}
+	switch {
+	case strings.Contains(stderr, "device not found"):
+		return ErrDeviceNotFound
+	case strings.Contains(stderr, "device offline"):
+		return ErrDeviceOffline
+	case strings.Contains(stderr, "device unauthorized"):
+		return ErrDeviceUnauthorized
+	case strings.Contains(stderr, "Connection refused"):
+		return ErrConnectionRefused
+	case strings.Contains(stderr, "more than one device"):
+		return ErrMoreThanOneDevice
+	default:
+		return nil
+	}
 }

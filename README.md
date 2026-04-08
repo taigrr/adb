@@ -4,8 +4,8 @@
 This library aims at providing idiomatic `adb` bindings for go developers, in order to make it easier to write system tooling using golang.
 This tool tries to take guesswork out of arbitrarily shelling out to `adb` by providing a structured, thoroughly-tested wrapper for the `adb` functions most-likely to be used in a system program.
 
-If `adb` must be installed in your path `PATH`. At this time, while this library may work on Windows or MacOS, only Linux is supported.
-If you would like to add support for Windows, MacOS, *BSD..., please [Submit a Pull Request](https://github.com/taigrr/adb/pulls).
+`adb` must be installed and available in your `PATH`. At this time, while this library may work on Windows or macOS, only Linux is supported.
+If you would like to add support for Windows, macOS, *BSD, etc., please [Submit a Pull Request](https://github.com/taigrr/adb/pulls).
 
 ## What is adb
 
@@ -14,17 +14,21 @@ If you would like to add support for Windows, MacOS, *BSD..., please [Submit a P
 
 ## Supported adb functions
 
-- [ ] `adb connect`
-- [ ] `adb disconnect`
-- [ ] `adb shell <input>s`
-- [ ] `adb kill-server`
-- [ ] `adb device`
-- [ ] `adb pull`
+- [x] `adb connect`
+- [x] `adb disconnect`
+- [x] `adb shell <command>`
+- [x] `adb kill-server`
+- [x] `adb devices`
+- [x] `adb pull`
 - [ ] `adb install`
-- [ ] `adb push`
-- [ ] `adb reboot`
-- [ ] `adb shell input tap X Y`
-- [ ] `adb shell input swipe X1 Y1 X2 Y2 duration`
+- [x] `adb push`
+- [x] `adb reboot`
+- [x] `adb root`
+- [x] `adb shell input tap X Y`
+- [x] `adb shell input swipe X1 Y1 X2 Y2 duration`
+- [x] `adb shell input keyevent` (home, back, app switch)
+- [x] `adb shell wm size` (screen resolution)
+- [x] `adb shell getevent` (capture and replay tap sequences)
 
 Please note that as this is a purpose-driven project library, not all functionality of ADB is currently supported, but if you need functionality that's not currently supported,
 Feel free to [Open an Issue](https://github.com/taigrr/adb/issues) or [Submit a Pull Request](https://github.com/taigrr/adb/pulls)

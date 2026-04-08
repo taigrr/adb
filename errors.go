@@ -17,6 +17,16 @@ var (
 	ErrResolutionParseFail = errors.New("failed to parse screen size from input text")
 	// ErrDestExists is returned when a pull destination file already exists.
 	ErrDestExists = errors.New("destination file already exists")
+	// ErrDeviceNotFound is returned when no device is connected or the target device cannot be found.
+	ErrDeviceNotFound = errors.New("device not found")
+	// ErrDeviceOffline is returned when the target device is offline.
+	ErrDeviceOffline = errors.New("device offline")
+	// ErrDeviceUnauthorized is returned when the device has not authorized USB debugging.
+	ErrDeviceUnauthorized = errors.New("device unauthorized; check the confirmation dialog on the device")
+	// ErrConnectionRefused is returned when the connection to a device is refused.
+	ErrConnectionRefused = errors.New("connection refused")
+	// ErrMoreThanOneDevice is returned when multiple devices are connected and no serial is specified.
+	ErrMoreThanOneDevice = errors.New("more than one device/emulator; use -s to specify a device")
 	// ErrUnspecified is returned when the exact error cannot be determined.
 	ErrUnspecified = errors.New("an unknown error has occurred, please open an issue on GitHub")
 )
