@@ -51,10 +51,11 @@ func Connect(ctx context.Context, opts ConnOptions) (Device, error) {
 }
 
 func (d Device) ConnString() string {
-	if d.Port == 0 {
-		d.Port = 5555
+	port := d.Port
+	if port == 0 {
+		port = 5555
 	}
-	return d.IP.String() + ":" + strconv.Itoa(int(d.Port))
+	return d.IP.String() + ":" + strconv.Itoa(int(port))
 }
 
 // Connect to a previously discovered device.
