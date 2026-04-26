@@ -27,7 +27,7 @@ func Test_parseDevices(t *testing.T) {
 19291FDEE0023W  device`},
 			wantErr: false,
 			want: []Device{
-				{IsAuthorized: true, SerialNo: "19291FDEE0023W"},
+				{IsAuthorized: true, SerialNo: "19291FDEE0023W", ConnType: USB},
 			},
 		},
 		{
@@ -35,7 +35,7 @@ func Test_parseDevices(t *testing.T) {
 HT75R0202681    unauthorized`},
 			wantErr: false,
 			want: []Device{
-				{IsAuthorized: false, SerialNo: "HT75R0202681"},
+				{IsAuthorized: false, SerialNo: "HT75R0202681", ConnType: USB},
 			},
 		},
 		{
@@ -45,9 +45,9 @@ HT75R0202681    unauthorized`},
 HT75R0202681    unauthorized`},
 			wantErr: false,
 			want: []Device{
-				{IsAuthorized: true, SerialNo: "19291FDEE0023W"},
-				{IsAuthorized: true, SerialNo: "9B061FFBA00BC9"},
-				{IsAuthorized: false, SerialNo: "HT75R0202681"},
+				{IsAuthorized: true, SerialNo: "19291FDEE0023W", ConnType: USB},
+				{IsAuthorized: true, SerialNo: "9B061FFBA00BC9", ConnType: USB},
+				{IsAuthorized: false, SerialNo: "HT75R0202681", ConnType: USB},
 			},
 		},
 		{
@@ -62,7 +62,16 @@ HT75R0202681    unauthorized`},
 ABCD1234	offline`},
 			wantErr: false,
 			want: []Device{
-				{IsAuthorized: false, SerialNo: "ABCD1234"},
+				{IsAuthorized: false, SerialNo: "ABCD1234", ConnType: USB},
+			},
+		},
+		{
+			name: "network device",
+			args: args{stdout: `List of devices attached
+192.168.1.10:5555  device`},
+			wantErr: false,
+			want: []Device{
+				{IsAuthorized: true, SerialNo: "192.168.1.10:5555", ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5555},
 			},
 		},
 		{
@@ -74,7 +83,7 @@ ABCD1234	offline`},
 `},
 			wantErr: false,
 			want: []Device{
-				{IsAuthorized: true, SerialNo: "19291FDEE0023W"},
+				{IsAuthorized: true, SerialNo: "19291FDEE0023W", ConnType: USB},
 			},
 		},
 	}
@@ -111,7 +120,7 @@ func TestDevice_ConnString(t *testing.T) {
 		{
 			name: "ipv6",
 			dev:  Device{IP: net.IPAddr{IP: net.ParseIP("::1")}, Port: 5555},
-			want: "::1:5555",
+			want: "[::1]:5555",
 		},
 	}
 	for _, tt := range tests {
@@ -119,6 +128,43 @@ func TestDevice_ConnString(t *testing.T) {
 			got := tt.dev.ConnString()
 			if got != tt.want {
 				t.Errorf("ConnString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_parseConnectedDevice(t *testing.T) {
+	tests := []struct {
+		name    string
+		stdout  string
+		want    Device
+		wantErr bool
+	}{
+		{
+			name:   "connected",
+			stdout: "connected to 192.168.1.10:5555\n",
+			want:   Device{SerialNo: "192.168.1.10:5555", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5555},
+		},
+		{
+			name:   "already connected",
+			stdout: "already connected to 192.168.1.10:5555\n",
+			want:   Device{SerialNo: "192.168.1.10:5555", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5555},
+		},
+		{
+			name:    "unparseable output",
+			stdout:  "unable to connect to 192.168.1.10:5555\n",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseConnectedDevice(tt.stdout)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseConnectedDevice() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseConnectedDevice() = %v, want %v", got, tt.want)
 			}
 		})
 	}
