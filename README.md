@@ -66,6 +66,7 @@ import (
     "context"
     "fmt"
     "log"
+    "net"
     "time"
 
     "github.com/taigrr/adb"
@@ -74,16 +75,20 @@ import (
 func main() {
     ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
     defer cancel()
-    // Equivalent to `adb connect 192.168.2.5` with a 10 second timeout
-    opts := adb.Options{ Address: "192.168.2.5" }
+    // Equivalent to `adb connect 192.168.2.5:5555` with a 10 second timeout
+    opts := adb.ConnOptions{ Address: net.IPAddr{IP: net.ParseIP("192.168.2.5")} }
     dev, err := adb.Connect(ctx, opts)
     if err != nil {
-        log.Fatalf("unable to connect to device %s: %v", opts.Address, err)
+        log.Fatalf("unable to connect to device %s: %v", opts.Address.String(), err)
     }
-    defer dev.Disconnect()
-    stdout, stderr, errCode, err := dev.Shell("ls")
+    defer func() {
+        if err := dev.Disconnect(ctx); err != nil {
+            log.Printf("disconnect failed: %v", err)
+        }
+    }()
+    stdout, stderr, errCode, err := dev.Shell(ctx, "ls")
     if err != nil {
-        log.Fatalf("unable to shell into device %s: %v", opts.Address, err)
+        log.Fatalf("unable to shell into device %s: %v", opts.Address.String(), err)
     }
     log.Printf("Stdout: %s\nStderr: %s\n, ErrCode: %d", stdout, stderr, errCode)
 }

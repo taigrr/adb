@@ -3,6 +3,7 @@ package adb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -44,10 +45,27 @@ type ConnOptions struct {
 // If the connection fails or cannot complete on time, Connect will return an error.
 // TODO
 func Connect(ctx context.Context, opts ConnOptions) (Device, error) {
-	if opts.Port == 0 {
-		opts.Port = 5555
+	device := Device{
+		ConnType: Network,
+		IP:       opts.Address,
+		Port:     opts.Port,
+		SerialNo: opts.SerialNo,
 	}
-	return Device{}, nil
+	if device.Port == 0 {
+		device.Port = 5555
+	}
+
+	stdout, _, errcode, err := execute(ctx, []string{"connect", device.ConnString()})
+	if err != nil {
+		return Device{}, err
+	}
+	if errcode != 0 {
+		return Device{}, ErrUnspecified
+	}
+
+	device.applyConnectedDevice(stdout)
+
+	return device, nil
 }
 
 func (d Device) ConnString() string {
@@ -55,7 +73,7 @@ func (d Device) ConnString() string {
 	if port == 0 {
 		port = 5555
 	}
-	return d.IP.String() + ":" + strconv.Itoa(int(port))
+	return net.JoinHostPort(d.IP.String(), strconv.Itoa(int(port)))
 }
 
 // Connect to a previously discovered device.
@@ -74,8 +92,8 @@ func (d Device) Reconnect(ctx context.Context) (Device, error) {
 	if errcode != 0 {
 		return d, ErrUnspecified
 	}
-	_, _ = stdout, stderr
-	// TODO capture and store serial number into d before returning
+	_, _ = stderr, stdout
+	d.applyConnectedDevice(stdout)
 	return d, nil
 }
 
@@ -111,10 +129,72 @@ func parseDevices(stdout string) ([]Device, error) {
 			SerialNo:     Serial(words[0]),
 			IsAuthorized: words[1] == "device",
 		}
+		if networkDevice, err := parseNetworkDevice(words[0]); err == nil {
+			d.ConnType = Network
+			d.IP = networkDevice.IP
+			d.Port = networkDevice.Port
+		} else {
+			d.ConnType = USB
+		}
 		devs = append(devs, d)
 	}
 
 	return devs, nil
+}
+
+func (d *Device) applyConnectedDevice(stdout string) {
+	connectedDevice, err := parseConnectedDevice(stdout)
+	if err != nil {
+		return
+	}
+	if connectedDevice.SerialNo != "" {
+		d.SerialNo = connectedDevice.SerialNo
+	}
+	d.ConnType = connectedDevice.ConnType
+	d.IP = connectedDevice.IP
+	d.Port = connectedDevice.Port
+	d.IsAuthorized = connectedDevice.IsAuthorized
+}
+
+func parseConnectedDevice(stdout string) (Device, error) {
+	lines := strings.Split(stdout, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "connected to ") {
+			serial := strings.TrimPrefix(trimmed, "connected to ")
+			return parseNetworkDevice(serial)
+		}
+		if strings.HasPrefix(trimmed, "already connected to ") {
+			serial := strings.TrimPrefix(trimmed, "already connected to ")
+			return parseNetworkDevice(serial)
+		}
+	}
+	return Device{}, fmt.Errorf("unable to parse connected device from %q", stdout)
+}
+
+func parseNetworkDevice(serial string) (Device, error) {
+	host, portStr, err := net.SplitHostPort(serial)
+	if err != nil {
+		return Device{}, err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return Device{}, fmt.Errorf("invalid IP address %q", host)
+	}
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return Device{}, err
+	}
+	return Device{
+		SerialNo:     Serial(serial),
+		IsAuthorized: true,
+		ConnType:     Network,
+		IP:           net.IPAddr{IP: ip},
+		Port:         uint(port),
+	}, nil
 }
 
 // Disconnect from a device.
@@ -124,7 +204,7 @@ func (d Device) Disconnect(ctx context.Context) error {
 	if d.ConnType != Network {
 		return ErrConnUSB
 	}
-	_, _, _, err := execute(ctx, []string{"-s", d.ConnString(), "disconnect"})
+	_, _, _, err := execute(ctx, []string{"disconnect", d.ConnString()})
 	return err
 }
 
