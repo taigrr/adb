@@ -151,6 +151,11 @@ func Test_parseConnectedDevice(t *testing.T) {
 			want:   Device{SerialNo: "192.168.1.10:5555", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5555},
 		},
 		{
+			name:   "connected ipv6",
+			stdout: "connected to [2001:db8::1]:5555\n",
+			want:   Device{SerialNo: "[2001:db8::1]:5555", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("2001:db8::1")}, Port: 5555},
+		},
+		{
 			name:    "unparseable output",
 			stdout:  "unable to connect to 192.168.1.10:5555\n",
 			wantErr: true,
@@ -168,6 +173,28 @@ func Test_parseConnectedDevice(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDevice_applyConnectedDevice(t *testing.T) {
+	t.Run("updates network metadata from adb output", func(t *testing.T) {
+		device := Device{ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("10.0.0.5")}, Port: 5555}
+		device.applyConnectedDevice("connected to 192.168.1.10:5556\n")
+
+		want := Device{SerialNo: "192.168.1.10:5556", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5556}
+		if !reflect.DeepEqual(device, want) {
+			t.Fatalf("applyConnectedDevice() = %#v, want %#v", device, want)
+		}
+	})
+
+	t.Run("leaves device unchanged on unparseable output", func(t *testing.T) {
+		original := Device{SerialNo: "existing", ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("10.0.0.5")}, Port: 5555}
+		device := original
+		device.applyConnectedDevice("unable to connect\n")
+
+		if !reflect.DeepEqual(device, original) {
+			t.Fatalf("applyConnectedDevice() mutated device: %#v != %#v", device, original)
+		}
+	})
 }
 
 func TestTapSequence_ShortenSleep(t *testing.T) {

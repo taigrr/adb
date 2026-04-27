@@ -63,16 +63,7 @@ func Connect(ctx context.Context, opts ConnOptions) (Device, error) {
 		return Device{}, ErrUnspecified
 	}
 
-	connectedDevice, parseErr := parseConnectedDevice(stdout)
-	if parseErr == nil {
-		if connectedDevice.SerialNo != "" {
-			device.SerialNo = connectedDevice.SerialNo
-		}
-		device.ConnType = connectedDevice.ConnType
-		device.IP = connectedDevice.IP
-		device.Port = connectedDevice.Port
-		device.IsAuthorized = connectedDevice.IsAuthorized
-	}
+	device.applyConnectedDevice(stdout)
 
 	return device, nil
 }
@@ -101,8 +92,8 @@ func (d Device) Reconnect(ctx context.Context) (Device, error) {
 	if errcode != 0 {
 		return d, ErrUnspecified
 	}
-	_, _ = stdout, stderr
-	// TODO capture and store serial number into d before returning
+	_, _ = stderr, stdout
+	d.applyConnectedDevice(stdout)
 	return d, nil
 }
 
@@ -149,6 +140,20 @@ func parseDevices(stdout string) ([]Device, error) {
 	}
 
 	return devs, nil
+}
+
+func (d *Device) applyConnectedDevice(stdout string) {
+	connectedDevice, err := parseConnectedDevice(stdout)
+	if err != nil {
+		return
+	}
+	if connectedDevice.SerialNo != "" {
+		d.SerialNo = connectedDevice.SerialNo
+	}
+	d.ConnType = connectedDevice.ConnType
+	d.IP = connectedDevice.IP
+	d.Port = connectedDevice.Port
+	d.IsAuthorized = connectedDevice.IsAuthorized
 }
 
 func parseConnectedDevice(stdout string) (Device, error) {
