@@ -39,12 +39,11 @@ exit "${ADB_TEST_EXITCODE:-0}"
 	t.Setenv("PATH", tempDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	previousADB := adb
-	previousOnce := adbOnce
 	adb = ""
 	adbOnce = sync.Once{}
 	t.Cleanup(func() {
 		adb = previousADB
-		adbOnce = previousOnce
+		adbOnce = sync.Once{}
 	})
 
 	return argsFile
