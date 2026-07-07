@@ -1,6 +1,8 @@
 package adb
 
 import (
+	"context"
+	"errors"
 	"net"
 	"reflect"
 	"testing"
@@ -235,6 +237,27 @@ func TestTapSequence_GetLength(t *testing.T) {
 	want := time.Second * 15 * 110 / 100
 	if got != want {
 		t.Errorf("GetLength() = %v, want %v", got, want)
+	}
+}
+
+func TestSequenceSleep_PlayHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	err := (SequenceSleep{Duration: time.Second, Type: SeqSleep}).Play(Device{}, ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("SequenceSleep.Play() error = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("SequenceSleep.Play() took %v after cancellation", elapsed)
+	}
+}
+
+func TestSequenceSleep_PlayCompletesAfterDuration(t *testing.T) {
+	err := (SequenceSleep{Duration: time.Millisecond, Type: SeqSleep}).Play(Device{}, context.Background())
+	if err != nil {
+		t.Fatalf("SequenceSleep.Play() error = %v, want nil", err)
 	}
 }
 
