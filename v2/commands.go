@@ -10,11 +10,19 @@ import (
 )
 
 // Shell runs an arbitrary command on the device via `adb shell`. Arguments are
-// passed as a pre-split argv (no host-side shell parsing), so quoting is the
-// caller's responsibility only for the device-side shell.
+// passed as a pre-split argv; adb joins them with spaces into a single string
+// that the device-side shell then parses, so device-side quoting/globbing is
+// the caller's responsibility.
+//
+// A non-zero exit status from the device command is NOT treated as an error:
+// it is reported through [Result.Code], mirroring `adb shell`. An error is
+// returned only when adb itself fails (for example the device is not found or
+// unauthorized), or the context is cancelled.
 func (d Device) Shell(ctx context.Context, name string, args ...string) (Result, error) {
 	argv := append([]string{"-s", d.serial, "shell", name}, args...)
-	return d.client.run(ctx, argv...)
+	sctx, cancel := d.client.withTimeout(ctx)
+	defer cancel()
+	return d.client.execShell(sctx, argv...)
 }
 
 // exec runs an adb subcommand against this device, discarding the result.
@@ -122,10 +130,34 @@ func (d Device) Forward(ctx context.Context, local, remote string) error {
 	return d.exec(ctx, "forward", local, remote)
 }
 
+// RemoveForward removes a previously created host-to-device forward,
+// equivalent to `adb forward --remove <local>`.
+func (d Device) RemoveForward(ctx context.Context, local string) error {
+	return d.exec(ctx, "forward", "--remove", local)
+}
+
+// RemoveAllForwards removes every host-to-device forward for this device,
+// equivalent to `adb forward --remove-all`.
+func (d Device) RemoveAllForwards(ctx context.Context) error {
+	return d.exec(ctx, "forward", "--remove-all")
+}
+
 // Reverse reverses a device socket to a host socket, equivalent to
 // `adb reverse <remote> <local>`.
 func (d Device) Reverse(ctx context.Context, remote, local string) error {
 	return d.exec(ctx, "reverse", remote, local)
+}
+
+// RemoveReverse removes a previously created device-to-host reverse,
+// equivalent to `adb reverse --remove <remote>`.
+func (d Device) RemoveReverse(ctx context.Context, remote string) error {
+	return d.exec(ctx, "reverse", "--remove", remote)
+}
+
+// RemoveAllReverses removes every device-to-host reverse for this device,
+// equivalent to `adb reverse --remove-all`.
+func (d Device) RemoveAllReverses(ctx context.Context) error {
+	return d.exec(ctx, "reverse", "--remove-all")
 }
 
 // Install pushes and installs an APK, equivalent to `adb install`. When
@@ -147,22 +179,33 @@ func (d Device) Uninstall(ctx context.Context, pkg string) error {
 	return d.execChecked(ctx, "uninstall", pkg)
 }
 
-// Screencap captures a PNG screenshot and writes it to dest, equivalent to
-// `adb exec-out screencap -p`. It returns [ErrDestExists] if dest exists.
+// Screenshot captures a PNG screenshot and returns the raw image bytes,
+// equivalent to `adb exec-out screencap -p`.
+func (d Device) Screenshot(ctx context.Context) ([]byte, error) {
+	res, err := d.client.run(ctx, "-s", d.serial, "exec-out", "screencap", "-p")
+	if err != nil {
+		return nil, err
+	}
+	if len(res.Stdout) == 0 {
+		return nil, ErrStdoutEmpty
+	}
+	return res.Stdout, nil
+}
+
+// Screencap captures a PNG screenshot and writes it to dest. It returns
+// [ErrDestExists] if dest already exists. Use [Device.Screenshot] to obtain the
+// image bytes directly.
 func (d Device) Screencap(ctx context.Context, dest string) error {
 	if _, err := os.Stat(dest); err == nil {
 		return ErrDestExists
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	res, err := d.client.run(ctx, "-s", d.serial, "exec-out", "screencap", "-p")
+	data, err := d.Screenshot(ctx)
 	if err != nil {
 		return err
 	}
-	if len(res.Stdout) == 0 {
-		return ErrStdoutEmpty
-	}
-	return os.WriteFile(dest, res.Stdout, 0o600)
+	return os.WriteFile(dest, data, 0o600)
 }
 
 // Tap taps the screen at (x, y), equivalent to `adb shell input tap`.

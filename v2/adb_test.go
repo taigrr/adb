@@ -310,10 +310,129 @@ func TestScreenResolution(t *testing.T) {
 }
 
 func TestNew_NotInstalled(t *testing.T) {
-	if _, err := New(WithBinary("")); err != nil {
-		// empty binary falls back to PATH lookup; only assert typed error when adb is absent.
-		if !errors.Is(err, ErrNotInstalled) {
-			t.Fatalf("New() error = %v", err)
-		}
+	// Point PATH at an empty dir so adb cannot be resolved.
+	t.Setenv("PATH", t.TempDir())
+	if _, err := New(); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("New() error = %v, want ErrNotInstalled", err)
+	}
+}
+
+func TestShell_SpawnFailureIsError(t *testing.T) {
+	// A client pointed at a nonexistent binary must surface a *CommandError
+	// (not silently succeed) for the spawn-failure path.
+	c := &Client{binary: filepath.Join(t.TempDir(), "does-not-exist")}
+	_, err := c.Device("S").Shell(context.Background(), "ls")
+	if err == nil {
+		t.Fatal("Shell() with missing binary expected error")
+	}
+	if _, ok := errors.AsType[*CommandError](err); !ok {
+		t.Fatalf("Shell() error = %v, want *CommandError", err)
+	}
+}
+
+func TestRun_ContextCancelledTakesPrecedence(t *testing.T) {
+	c, _ := fakeADB(t, "", "", 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.Device("S").Shell(ctx, "ls")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Shell() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestClientDevice_Constructor(t *testing.T) {
+	c, _ := fakeADB(t, "", "", 0)
+
+	usb := c.Device("SERIAL123")
+	if usb.Serial() != "SERIAL123" || usb.Transport() != USB || !usb.Authorized() {
+		t.Fatalf("Device(usb) = %#v", usb)
+	}
+	if _, ok := usb.Addr(); ok {
+		t.Fatal("USB device should not report an address")
+	}
+
+	net := c.Device("192.168.1.10:5555")
+	if net.Transport() != Network {
+		t.Fatalf("Device(network) transport = %v", net.Transport())
+	}
+	if _, ok := net.Addr(); !ok {
+		t.Fatal("network device should report an address")
+	}
+}
+
+func TestZeroDeviceTransportUnknown(t *testing.T) {
+	var d Device
+	if d.Transport() != UnknownTransport {
+		t.Fatalf("zero Device transport = %v, want UnknownTransport", d.Transport())
+	}
+	if d.Transport().String() != "unknown" {
+		t.Fatalf("UnknownTransport.String() = %q", d.Transport().String())
+	}
+}
+
+func TestShell_NonZeroExitIsNotError(t *testing.T) {
+	c, _ := fakeADB(t, "", "", 1)
+	res, err := c.Device("S").Shell(context.Background(), "test", "-f", "/nope")
+	if err != nil {
+		t.Fatalf("Shell() with device exit 1 should not error, got %v", err)
+	}
+	if res.Code != 1 {
+		t.Fatalf("Shell() Result.Code = %d, want 1", res.Code)
+	}
+}
+
+func TestShell_AdbFailureIsError(t *testing.T) {
+	c, _ := fakeADB(t, "", "error: device not found\n", 1)
+	if _, err := c.Device("S").Shell(context.Background(), "ls"); !errors.Is(err, ErrDeviceNotFound) {
+		t.Fatalf("Shell() error = %v, want ErrDeviceNotFound", err)
+	}
+}
+
+func TestScreenshot(t *testing.T) {
+	c, argsFile := fakeADB(t, "PNGDATA", "", 0)
+	data, err := c.Device("S").Screenshot(context.Background())
+	if err != nil {
+		t.Fatalf("Screenshot() error = %v", err)
+	}
+	if string(data) != "PNGDATA" {
+		t.Fatalf("Screenshot() = %q", string(data))
+	}
+	want := []string{"-s", "S", "exec-out", "screencap", "-p"}
+	if got := readArgs(t, argsFile); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Screenshot() args = %v, want %v", got, want)
+	}
+}
+
+func TestForwardReverseRemove(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(Device) error
+		want []string
+	}{
+		{"remove forward", func(d Device) error { return d.RemoveForward(context.Background(), "tcp:8000") }, []string{"-s", "S", "forward", "--remove", "tcp:8000"}},
+		{"remove all forwards", func(d Device) error { return d.RemoveAllForwards(context.Background()) }, []string{"-s", "S", "forward", "--remove-all"}},
+		{"remove reverse", func(d Device) error { return d.RemoveReverse(context.Background(), "tcp:9000") }, []string{"-s", "S", "reverse", "--remove", "tcp:9000"}},
+		{"remove all reverses", func(d Device) error { return d.RemoveAllReverses(context.Background()) }, []string{"-s", "S", "reverse", "--remove-all"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, argsFile := fakeADB(t, "", "", 0)
+			if err := tt.call(c.Device("S")); err != nil {
+				t.Fatalf("%s error = %v", tt.name, err)
+			}
+			if got := readArgs(t, argsFile); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("args = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStartServer(t *testing.T) {
+	c, argsFile := fakeADB(t, "", "", 0)
+	if err := c.StartServer(context.Background()); err != nil {
+		t.Fatalf("StartServer() error = %v", err)
+	}
+	if got := readArgs(t, argsFile); !reflect.DeepEqual(got, []string{"start-server"}) {
+		t.Fatalf("StartServer() args = %v", got)
 	}
 }

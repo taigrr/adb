@@ -12,8 +12,10 @@ import (
 type Transport int
 
 const (
+	// UnknownTransport is the zero value, used by an uninitialized Device.
+	UnknownTransport Transport = iota
 	// USB indicates a device attached over USB.
-	USB Transport = iota
+	USB
 	// Network indicates a device attached over TCP/IP.
 	Network
 )
@@ -67,16 +69,40 @@ func (c *Client) Devices(ctx context.Context) ([]Device, error) {
 	return c.parseDevices(res.StdoutString()), nil
 }
 
+// Device returns a handle to a device addressed by the given adb serial
+// (a USB serial or a network host:port). No I/O is performed and the device is
+// not verified to exist; the returned handle is assumed authorized. Use
+// [Client.Devices] to discover serials and authorization state.
+func (c *Client) Device(serial string) Device {
+	d := Device{
+		client:     c,
+		serial:     serial,
+		transport:  USB,
+		authorized: true,
+	}
+	if addr, err := netip.ParseAddrPort(serial); err == nil {
+		d.transport = Network
+		d.addr = addr
+		d.hasAddr = true
+	}
+	return d
+}
+
 func (c *Client) parseDevices(stdout string) []Device {
 	devs := []Device{}
 	for line := range strings.SplitSeq(stdout, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" ||
+			strings.HasPrefix(trimmed, "List of devices") ||
+			strings.HasPrefix(trimmed, "*") { // daemon status messages
 			continue
 		}
-		if fields[0] == "List" { // "List of devices attached"
+		fields := strings.Fields(trimmed)
+		if len(fields) < 2 {
 			continue
 		}
+		// The state may be multiple words (e.g. "no permissions (...)"); only
+		// the exact "device" state is authorized.
 		d := Device{
 			client:     c,
 			serial:     fields[0],
@@ -159,6 +185,13 @@ func (c *Client) Pair(ctx context.Context, addr, code string) error {
 		return &CommandError{Args: args, Code: res.Code, Stderr: res.StderrString(), Err: ErrCommandFailed}
 	}
 	return nil
+}
+
+// StartServer ensures the adb server is running, equivalent to
+// `adb start-server`.
+func (c *Client) StartServer(ctx context.Context) error {
+	_, err := c.run(ctx, "start-server")
+	return err
 }
 
 // KillServer terminates the adb server, equivalent to `adb kill-server`.

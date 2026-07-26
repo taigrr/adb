@@ -6,12 +6,28 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [".", "v2"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ matrix.module }}/go.mod
       - run: go test -race ./...
+        working-directory: ${{ matrix.module }}
       - run: go vet ./...
+        working-directory: ${{ matrix.module }}
       - run: go build ./...
+        working-directory: ${{ matrix.module }}
 
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: examples/tapRecorder/go.mod
+      # The example pins legacy dependencies; only verify it still compiles.
+      - run: go build ./...
+        working-directory: examples/tapRecorder

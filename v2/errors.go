@@ -21,7 +21,7 @@ var (
 	// ErrCoordinatesNotFound is returned when touch-event coordinates are missing.
 	ErrCoordinatesNotFound = errors.New("coordinates for an input event are missing")
 	// ErrNotNetworkDevice is returned when a network-only operation
-	// (connect/disconnect/reconnect) is attempted on a USB device.
+	// (connect/disconnect) is attempted on a USB device.
 	ErrNotNetworkDevice = errors.New("operation requires a network device")
 	// ErrResolutionParseFail is returned when screen-resolution output cannot be parsed.
 	ErrResolutionParseFail = errors.New("failed to parse screen size from adb output")
@@ -58,11 +58,14 @@ type CommandError struct {
 }
 
 func (e *CommandError) Error() string {
-	detail := e.Err.Error()
-	if e.Stderr != "" {
-		detail = strings.TrimSpace(e.Stderr)
+	cause := "failed"
+	if e.Err != nil {
+		cause = e.Err.Error()
 	}
-	return fmt.Sprintf("adb %s: exit %d: %s", strings.Join(e.Args, " "), e.Code, detail)
+	if stderr := strings.TrimSpace(e.Stderr); stderr != "" && stderr != cause {
+		cause = cause + ": " + stderr
+	}
+	return fmt.Sprintf("adb %s: exit %d: %s", strings.Join(e.Args, " "), e.Code, cause)
 }
 
 // Unwrap returns the underlying error so [errors.Is] and [errors.As] can match

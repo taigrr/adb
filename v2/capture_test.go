@@ -1,7 +1,10 @@
 package adb
 
 import (
+	"context"
 	_ "embed"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -27,26 +30,51 @@ func TestTrimDeviceDescriptors(t *testing.T) {
 				t.Fatalf("line 0 expected to contain 'add device': %s", lines[0])
 			}
 			trimmed := trimDeviceDescriptors(lines)
-			if len(trimmed) > 0 && strings.Contains(trimmed[0], "add device") {
-				t.Fatalf("line 0 still contains 'add device': %s", trimmed[0])
+			if len(trimmed) == 0 {
+				t.Fatal("trimDeviceDescriptors returned no event lines")
+			}
+			for i, line := range trimmed {
+				if !reTimestamp.MatchString(line) {
+					t.Fatalf("kept non-event line %d: %q", i, line)
+				}
 			}
 		})
 	}
 }
 
-func TestGroupTouches(t *testing.T) {
+func TestTracksToEvents_SingleFingerCounts(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		log   string
 		count int
-	}{{"pixel", pixel, 7}, {"tablet", tablet, 8}} {
+	}{{"pixel", pixel, 7}, {"tablet", tablet, 9}} {
 		t.Run(tc.name, func(t *testing.T) {
-			lines := trimDeviceDescriptors(strings.Split(tc.log, "\n"))
-			raws := parseRawEvents(lines)
-			if got := len(groupTouches(raws)); got != tc.count {
-				t.Fatalf("groupTouches() = %d, want %d", got, tc.count)
+			raws := parseRawEvents(trimDeviceDescriptors(strings.Split(tc.log, "\n")))
+			if got := len(tracksToEvents(raws)); got != tc.count {
+				t.Fatalf("tracksToEvents() = %d swipes, want %d", got, tc.count)
 			}
 		})
+	}
+}
+
+func TestTracksToEvents_MultitouchSplitsPerFinger(t *testing.T) {
+	// The multitouch fixture has one BTN_TOUCH DOWN/UP pair but three fingers
+	// (slots 0/1/2). The old BTN_TOUCH-delimited parser collapsed these into a
+	// single swipe with cross-finger coordinates; the slot-aware parser must
+	// emit one event per finger, each with self-consistent coordinates.
+	events := tracksToEvents(parseRawEvents(trimDeviceDescriptors(strings.Split(multitouch, "\n"))))
+	if len(events) != 3 {
+		t.Fatalf("multitouch produced %d events, want 3 (one per finger)", len(events))
+	}
+	// Finger 1 (slot 0) starts at 0x241,0x90b = 577,2315.
+	if events[0].X1 != 0x241 || events[0].Y1 != 0x90b {
+		t.Fatalf("finger 1 start = (%d,%d), want (577,2315)", events[0].X1, events[0].Y1)
+	}
+	// Every event must be ordered by start time.
+	for i := 1; i < len(events); i++ {
+		if events[i].Start.Before(events[i-1].Start) {
+			t.Fatalf("events not ordered by start time at %d", i)
+		}
 	}
 }
 
@@ -56,20 +84,38 @@ func TestParseGetEvent_ProducesSwipesAndSleeps(t *testing.T) {
 		t.Fatal("parseGetEvent() produced no events")
 	}
 	var swipes, sleeps int
-	for _, e := range events {
+	var firstSwipe *event
+	for i, e := range events {
 		switch e.Kind {
 		case kindSwipe:
 			swipes++
+			if firstSwipe == nil {
+				firstSwipe = &events[i]
+			}
 		case kindSleep:
 			sleeps++
 		}
 	}
-	if swipes == 0 {
-		t.Fatal("expected at least one swipe event")
+	if swipes != 7 {
+		t.Fatalf("expected 7 swipes from pixel fixture, got %d", swipes)
 	}
 	// Sleeps are interleaved between touches, so with N swipes there are N-1 sleeps.
 	if sleeps != swipes-1 {
 		t.Fatalf("expected %d sleeps, got %d", swipes-1, sleeps)
+	}
+	// pixel's first touch begins at 0x450,0x669 (line 11/12 of the fixture).
+	if firstSwipe.X1 != 0x450 || firstSwipe.Y1 != 0x669 {
+		t.Fatalf("first swipe start = (%d,%d), want (%d,%d)", firstSwipe.X1, firstSwipe.Y1, 0x450, 0x669)
+	}
+	// Events must alternate swipe, sleep, swipe, ...
+	for i, e := range events {
+		wantSleep := i%2 == 1
+		if wantSleep && e.Kind != kindSleep {
+			t.Fatalf("event %d expected sleep", i)
+		}
+		if !wantSleep && e.Kind != kindSwipe {
+			t.Fatalf("event %d expected swipe", i)
+		}
 	}
 }
 
@@ -144,7 +190,8 @@ func TestInsertSleeps_GapIsStartMinusPrevEnd(t *testing.T) {
 }
 
 func TestTrimDeviceDescriptors_NoTrailingNewline(t *testing.T) {
-	// A stream cut mid-recording (no trailing newline) must keep its last line.
+	// Descriptor lines (no timestamp) are dropped; every timestamped event
+	// line is kept, including the last even without a trailing newline.
 	input := []string{"add device 1: /dev/input/event0", "  name: x", "[ 1.0] EV_KEY BTN_TOUCH DOWN", "[ 1.1] EV_KEY BTN_TOUCH UP"}
 	got := trimDeviceDescriptors(input)
 	if len(got) != 2 {
@@ -158,6 +205,81 @@ func TestTrimDeviceDescriptors_NoTrailingNewline(t *testing.T) {
 func TestTrimDeviceDescriptors_NoTouch(t *testing.T) {
 	if got := trimDeviceDescriptors([]string{"add device 1", "name: x"}); got != nil {
 		t.Fatalf("expected nil for no touch, got %v", got)
+	}
+}
+
+func TestReplay_TapVsLongPressRouting(t *testing.T) {
+	tests := []struct {
+		name string
+		ev   event
+		want []string
+	}{
+		{
+			name: "instant tap uses input tap",
+			ev:   event{Kind: kindSwipe, X1: 10, Y1: 20, X2: 10, Y2: 20},
+			want: []string{"-s", "S", "shell", "input", "tap", "10", "20"},
+		},
+		{
+			name: "stationary long-press uses same-point swipe with duration",
+			ev: event{
+				Kind: kindSwipe, X1: 10, Y1: 20, X2: 10, Y2: 20,
+				Start: time.Time{}, End: time.Time{}.Add(600 * time.Millisecond),
+			},
+			want: []string{"-s", "S", "shell", "input", "swipe", "10", "20", "10", "20", "600"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, argsFile := fakeADB(t, "", "", 0)
+			if err := tt.ev.play(context.Background(), fakeDevice(c, "S", Network)); err != nil {
+				t.Fatalf("play() error = %v", err)
+			}
+			if got := readArgs(t, argsFile); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("play() args = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewSequenceAndEventsRoundTrip(t *testing.T) {
+	seq := NewSequence(Resolution{Width: 1080, Height: 2340},
+		NewTap(10, 20),
+		NewSleep(time.Second),
+		NewSwipe(0, 0, 100, 200, 300*time.Millisecond),
+	)
+	events := seq.Events()
+	if len(events) != 3 {
+		t.Fatalf("Events() len = %d, want 3", len(events))
+	}
+	if events[0] != (Event{Kind: SwipeEvent, X1: 10, Y1: 20, X2: 10, Y2: 20}) {
+		t.Fatalf("tap event = %#v", events[0])
+	}
+	if events[1] != (Event{Kind: SleepEvent, Duration: time.Second}) {
+		t.Fatalf("sleep event = %#v", events[1])
+	}
+	if events[2] != (Event{Kind: SwipeEvent, X2: 100, Y2: 200, Duration: 300 * time.Millisecond}) {
+		t.Fatalf("swipe event = %#v", events[2])
+	}
+}
+
+func TestSequenceEncodingJSONRoundTrip(t *testing.T) {
+	original := NewSequence(Resolution{Width: 1080, Height: 2340},
+		NewSwipe(10, 20, 30, 40, 500*time.Millisecond),
+		NewSleep(2*time.Second),
+	)
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("json.Marshal error = %v", err)
+	}
+	var got Sequence
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("json.Unmarshal error = %v", err)
+	}
+	if got.Resolution() != original.Resolution() {
+		t.Fatalf("resolution = %v, want %v", got.Resolution(), original.Resolution())
+	}
+	if !reflect.DeepEqual(got.Events(), original.Events()) {
+		t.Fatalf("events = %v, want %v", got.Events(), original.Events())
 	}
 }
 

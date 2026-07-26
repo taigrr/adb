@@ -23,6 +23,20 @@ go get github.com/taigrr/adb/v2
   surface as `ErrCommandFailed`.
 - Record/replay uses an opaque `Sequence` with `MarshalJSON`/`ParseSequence`.
 
+## Record/replay caveat
+
+`adb shell input` can only inject single-touch taps and swipes, so a recorded
+multi-finger gesture (pinch/zoom) is decomposed into one swipe per finger and
+replayed **sequentially**, not simultaneously. True multitouch cannot be
+reproduced through adb.
+
+## Releasing
+
+Because this module lives in the `v2/` subdirectory, releases must be tagged
+with the `v2/` prefix, e.g. `v2/v2.0.0` (a bare `v2.0.0` tag will not resolve
+for `go get github.com/taigrr/adb/v2`). The root v1 module is tagged
+independently with plain `vX.Y.Z` tags.
+
 ## Example
 
 ```go

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -16,13 +17,16 @@ func fakeADB(t *testing.T, stdout, stderr string, exitCode int) (*Client, string
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "args.txt")
 	scriptPath := filepath.Join(dir, "adb")
+	// Args are recorded NUL-delimited so empty arguments are preserved, and
+	// stdout/stderr use %s (no backslash-escape interpretation) so binary and
+	// backslash-containing payloads pass through verbatim like real adb.
 	script := `#!/bin/sh
-printf '%s\n' "$@" > "$ADB_TEST_ARGS_FILE"
+printf '%s\0' "$@" > "$ADB_TEST_ARGS_FILE"
 if [ -n "$ADB_TEST_STDOUT" ]; then
-	printf '%b' "$ADB_TEST_STDOUT"
+	printf '%s' "$ADB_TEST_STDOUT"
 fi
 if [ -n "$ADB_TEST_STDERR" ]; then
-	printf '%b' "$ADB_TEST_STDERR" >&2
+	printf '%s' "$ADB_TEST_STDERR" >&2
 fi
 exit "${ADB_TEST_EXITCODE:-0}"
 `
@@ -48,26 +52,11 @@ func readArgs(t *testing.T, path string) []string {
 	if err != nil {
 		t.Fatalf("read args: %v", err)
 	}
-	return splitLines(string(contents))
-}
-
-func splitLines(in string) []string {
-	lines := []string{}
-	current := ""
-	for _, r := range in {
-		if r == '\n' {
-			if current != "" {
-				lines = append(lines, current)
-			}
-			current = ""
-			continue
-		}
-		current += string(r)
+	trimmed := strings.TrimSuffix(string(contents), "\x00")
+	if trimmed == "" {
+		return []string{}
 	}
-	if current != "" {
-		lines = append(lines, current)
-	}
-	return lines
+	return strings.Split(trimmed, "\x00")
 }
 
 // fakeDevice returns a Device bound to the given fake client.

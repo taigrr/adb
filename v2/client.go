@@ -48,29 +48,39 @@ func New(opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-// run executes adb with the given arguments, applying the client's default
-// timeout when the context has no deadline. See [Client.exec] for the result
-// and error semantics.
+// run executes adb, treating a non-zero exit code as a failure. It applies the
+// client's default timeout when the context has no deadline.
 func (c *Client) run(ctx context.Context, args ...string) (Result, error) {
-	if c.defaultTimeout > 0 {
-		if _, ok := ctx.Deadline(); !ok {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, c.defaultTimeout)
-			defer cancel()
-		}
-	}
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	return c.exec(ctx, args...)
 }
 
-// exec runs adb without imposing the default timeout and returns the captured
-// result. A non-zero exit code, an adb-reported failure in the output, or a
-// context cancellation yields a *CommandError wrapping the appropriate cause
-// (which may be a package sentinel or a context error).
-func (c *Client) exec(ctx context.Context, args ...string) (Result, error) {
+// withTimeout wraps ctx with the client's default timeout when the caller has
+// not set its own deadline. The returned cancel is always safe to call.
+func (c *Client) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.defaultTimeout > 0 {
+		if _, ok := ctx.Deadline(); !ok {
+			return context.WithTimeout(ctx, c.defaultTimeout)
+		}
+	}
+	return ctx, func() {}
+}
+
+// capture runs adb and returns the raw result plus the run error, accounting
+// for context cancellation but applying no failure classification. The caller
+// decides how to interpret the exit code.
+func (c *Client) capture(ctx context.Context, args ...string) (Result, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, c.binary, args...) //nolint:gosec // G204: adb args are supplied by the caller by design
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	// adb auto-forks a persistent background server that inherits the child's
+	// stdout/stderr pipes; without a WaitDelay, cmd.Run would block until that
+	// daemon closes them (potentially forever), and context cancellation would
+	// not force a return. WaitDelay force-closes the pipes shortly after the
+	// direct process exits or the context is cancelled.
+	cmd.WaitDelay = 5 * time.Second
 	runErr := cmd.Run()
 
 	res := Result{
@@ -85,14 +95,44 @@ func (c *Client) exec(ctx context.Context, args ...string) (Result, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return res, &CommandError{Args: args, Code: res.Code, Stderr: res.StderrString(), Err: ctxErr}
 	}
+	// WaitDelay fires when a surviving adb daemon keeps the inherited stdout
+	// pipe open after the direct process already exited successfully. Treat a
+	// clean exit whose only error is the forced pipe close as success.
+	if errors.Is(runErr, exec.ErrWaitDelay) && res.Code == 0 {
+		return res, nil
+	}
+	return res, runErr
+}
 
+// exec runs adb without imposing the default timeout. A non-zero exit code, a
+// known adb stderr message, or a spawn failure yields a *CommandError wrapping
+// the appropriate cause.
+func (c *Client) exec(ctx context.Context, args ...string) (Result, error) {
+	res, runErr := c.capture(ctx, args...)
+	if _, ok := errors.AsType[*CommandError](runErr); ok {
+		return res, runErr
+	}
 	if cause := classify(res, runErr); cause != nil {
-		return res, &CommandError{
-			Args:   args,
-			Code:   res.Code,
-			Stderr: res.StderrString(),
-			Err:    cause,
-		}
+		return res, &CommandError{Args: args, Code: res.Code, Stderr: res.StderrString(), Err: cause}
+	}
+	return res, nil
+}
+
+// execShell runs adb, tolerating a non-zero exit code (which for `adb shell`
+// carries the device command's own exit status) so it is reported via
+// [Result.Code] rather than as an error. Known adb stderr failures and spawn
+// failures are still returned as errors.
+func (c *Client) execShell(ctx context.Context, args ...string) (Result, error) {
+	res, runErr := c.capture(ctx, args...)
+	if _, ok := errors.AsType[*CommandError](runErr); ok {
+		return res, runErr
+	}
+	if cause := filterStderr(res.StderrString()); cause != nil {
+		return res, &CommandError{Args: args, Code: res.Code, Stderr: res.StderrString(), Err: cause}
+	}
+	// A non-ExitError run error means adb itself failed to run.
+	if _, ok := errors.AsType[*exec.ExitError](runErr); runErr != nil && !ok {
+		return res, &CommandError{Args: args, Code: res.Code, Stderr: res.StderrString(), Err: runErr}
 	}
 	return res, nil
 }
