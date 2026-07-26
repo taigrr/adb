@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -21,7 +20,7 @@ var (
 	command string
 	file    string
 
-	chosen            adb.Serial
+	chosen            string
 	titleStyle        = lipgloss.NewStyle().MarginLeft(2)
 	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
@@ -38,69 +37,76 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-	sigChan := make(chan os.Signal)
+	sigChan := make(chan os.Signal, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		<-sigChan
 		cancel()
 	}()
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	devs, err := adb.Devices(ctx)
+
+	client, err := adb.New()
+	if err != nil {
+		fmt.Printf("Error creating adb client: %v\n", err)
+		return
+	}
+	devs, err := client.Devices(ctx)
 	if err != nil {
 		fmt.Printf("Error enumerating devices: %v\n", err)
 		return
 	}
-	devNames := []adb.Serial{}
+	devNames := []string{}
 	for _, dev := range devs {
-		devNames = append(devNames, dev.SerialNo)
+		devNames = append(devNames, dev.Serial())
 	}
 	selected := chooseDev(devNames)
 
 	for _, dev := range devs {
-		if dev.SerialNo != selected {
+		if dev.Serial() != selected {
 			continue
 		}
-		if !dev.IsAuthorized {
-			fmt.Printf("Dev `%s` is not authorized, authorize it to continue.\n", dev.SerialNo)
+		if !dev.Authorized() {
+			fmt.Printf("Dev `%s` is not authorized, authorize it to continue.\n", dev.Serial())
 			continue
 		}
 		switch command {
 		case "rec":
 			fmt.Println("Recording taps now. Hit ctrl+c to stop.")
-			t, err := dev.CaptureSequence(ctx)
+			seq, err := dev.Record(ctx)
 			if err != nil {
 				fmt.Printf("Error capturing sequence: %v\n", err)
 				return
 			}
-			b, _ := json.Marshal(t)
-			f, err := os.Create(file)
+			b, err := json.Marshal(seq)
 			if err != nil {
-				fmt.Printf("Error creating tap file %s: %v", file, err)
+				fmt.Printf("Error encoding sequence: %v\n", err)
 				return
 			}
-			defer f.Close()
-			f.Write(b)
+			if err := os.WriteFile(file, b, 0o600); err != nil {
+				fmt.Printf("Error writing tap file %s: %v\n", file, err)
+				return
+			}
 		case "play":
 			fmt.Println("Replaying taps now. Hit ctrl+c to stop.")
-			f, err := os.Open(file)
+			b, err := os.ReadFile(file)
 			if err != nil {
-				fmt.Printf("Error opening tap file %s: %v", file, err)
+				fmt.Printf("Error reading tap file %s: %v\n", file, err)
 				return
 			}
-			defer f.Close()
-			var b bytes.Buffer
-			b.ReadFrom(f)
-			t, err := adb.TapSequenceFromJSON(b.Bytes())
+			seq, err := adb.ParseSequence(b)
 			if err != nil {
-				fmt.Printf("Error parsing tap file %s: %v", file, err)
+				fmt.Printf("Error parsing tap file %s: %v\n", file, err)
 				return
 			}
-			dev.ReplayTapSequence(ctx, t)
+			if err := dev.Replay(ctx, seq); err != nil {
+				fmt.Printf("Error replaying sequence: %v\n", err)
+				return
+			}
 		}
 	}
 }
 
-func NewModel(devs []adb.Serial) Model {
+func NewModel(devs []string) Model {
 	var m Model
 	items := []list.Item{}
 	for _, d := range devs {
@@ -111,7 +117,7 @@ func NewModel(devs []adb.Serial) Model {
 	return m
 }
 
-func chooseDev(devs []adb.Serial) adb.Serial {
+func chooseDev(devs []string) string {
 	if len(devs) == 0 {
 		return ""
 	}
@@ -130,7 +136,7 @@ func chooseDev(devs []adb.Serial) adb.Serial {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
-	return adb.Serial(chosen)
+	return chosen
 }
 
 type Model struct {
@@ -139,7 +145,7 @@ type Model struct {
 	Choice   DevEntry
 }
 
-type DevEntry adb.Serial
+type DevEntry string
 
 func (d DevEntry) FilterValue() string {
 	return ""
@@ -162,7 +168,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			i, ok := m.List.SelectedItem().(DevEntry)
 			if ok {
-				chosen = adb.Serial(i)
+				chosen = string(i)
 			}
 			return m, tea.Quit
 		}

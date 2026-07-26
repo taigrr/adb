@@ -1,121 +1,126 @@
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/taigrr/adb)](https://pkg.go.dev/github.com/taigrr/adb)
 # adb
 
-This library aims at providing idiomatic `adb` bindings for go developers, in order to make it easier to write system tooling using golang.
-This tool tries to take guesswork out of arbitrarily shelling out to `adb` by providing a structured, thoroughly-tested wrapper for the `adb` functions most-likely to be used in a system program.
+Idiomatic `adb` bindings for Go, to make it easier to write system tooling that
+drives Android devices. Instead of arbitrarily shelling out to `adb`, this
+library provides a structured, thoroughly-tested, context-aware wrapper around
+the `adb` commands most likely to be used in a system program.
 
-`adb` must be installed and available in your `PATH`. At this time, while this library may work on Windows or macOS, only Linux is supported.
-If you would like to add support for Windows, macOS, *BSD, etc., please [Submit a Pull Request](https://github.com/taigrr/adb/pulls).
+`adb` must be installed and available in your `PATH`. At this time, while this
+library may work on Windows or macOS, only Linux is supported. If you would like
+to add support for Windows, macOS, *BSD, etc., please
+[Submit a Pull Request](https://github.com/taigrr/adb/pulls).
 
-> **A redesigned v2 is available at [`github.com/taigrr/adb/v2`](./v2).**
-> v2 introduces a `Client`-based API, an opaque immutable `Device`, a single
-> `Result` return from `Shell`, and richer typed errors. New code is encouraged
-> to use v2; this v1 module remains supported.
+```sh
+go get github.com/taigrr/adb
+```
 
 ## What is adb
 
-`adb`, the Android Debug Bridge, is a command-line program which allows a user to remote-control and debug Android devices.
+`adb`, the Android Debug Bridge, is a command-line program which allows a user
+to remote-control and debug Android devices.
 
+## Design
+
+- A `Client` wraps the adb server; create it once with `New(...)`. Devices are
+  obtained from the client and carry a reference back to it.
+- `Device` is an opaque, immutable handle (accessors `Serial`, `Transport`,
+  `Addr`, `Authorized`) using `net/netip`.
+- `Shell` takes an argv slice and returns a single `Result{Stdout, Stderr
+  []byte, Code int}`. A device command's non-zero exit is reported via
+  `Result.Code`, not as an error.
+- Errors are sentinels wrapped in `*CommandError` (which exposes the argv, exit
+  code, and stderr). Match causes with `errors.Is`; timeouts and cancellations
+  surface as `context.DeadlineExceeded` / `context.Canceled`.
+- adb failures reported on stdout while exiting 0 (install/uninstall/am/pm)
+  surface as `ErrCommandFailed`.
+- Record/replay uses an opaque `Sequence` with `MarshalJSON`/`ParseSequence`
+  and a programmatic builder (`NewSequence`/`NewTap`/`NewSwipe`/`NewSleep`).
 
 ## Supported adb functions
 
-- [x] `adb connect`
-- [x] `adb disconnect`
+- [x] `adb connect` / `adb disconnect`
 - [x] `adb pair` (Android 11+ wireless pairing)
 - [x] `adb tcpip`
+- [x] `adb devices` / `adb get-state` / `adb wait-for-device`
 - [x] `adb shell <command>`
-- [x] `adb kill-server`
-- [x] `adb devices`
-- [x] `adb get-state`
-- [x] `adb wait-for-device`
-- [x] `adb pull`
-- [x] `adb install` / `adb install -r`
-- [x] `adb uninstall`
-- [x] `adb push`
-- [x] `adb forward` / `adb reverse`
-- [x] `adb reboot`
-- [x] `adb root` / `adb unroot`
-- [x] `adb remount`
-- [x] `adb exec-out screencap` (save a screenshot)
-- [x] `adb shell input tap X Y`
-- [x] `adb shell input text`
-- [x] `adb shell input swipe X1 Y1 X2 Y2 duration`
-- [x] `adb shell input keyevent` (home, back, app switch, or arbitrary keycodes)
-- [x] `adb shell getprop` / `adb shell setprop`
-- [x] `adb shell pm list packages`
-- [x] `adb shell pm grant` / `adb shell pm revoke`
+- [x] `adb start-server` / `adb kill-server`
+- [x] `adb push` / `adb pull`
+- [x] `adb install` / `adb uninstall`
+- [x] `adb forward` / `adb reverse` (and their remove variants)
+- [x] `adb reboot` / `adb root` / `adb unroot` / `adb remount`
+- [x] `adb exec-out screencap` (save a screenshot or get PNG bytes)
+- [x] `adb shell input tap` / `swipe` / `text` / `keyevent`
+- [x] `adb shell getprop` / `setprop`
+- [x] `adb shell pm list packages` / `pm grant` / `pm revoke`
 - [x] `adb shell am start`
 - [x] `adb shell wm size` (screen resolution)
 - [x] `adb shell getevent` (capture and replay tap sequences)
 
-Please note that as this is a purpose-driven project library, not all functionality of ADB is currently supported, but if you need functionality that's not currently supported,
-Feel free to [Open an Issue](https://github.com/taigrr/adb/issues) or [Submit a Pull Request](https://github.com/taigrr/adb/pulls)
+Not all of ADB's functionality is currently supported; if you need something
+that isn't, please [open an issue](https://github.com/taigrr/adb/issues) or
+[submit a PR](https://github.com/taigrr/adb/pulls).
 
-## Helper functionality
-
-- In addition to using the shell commands, this library provides helper methods for stateful connections.
-  That is, you can connect to a device and get back a handler object and call functions against it with better error handling.
-
-- In addition to the connection commands, this library also has helper functions for many common shell commands, including:
-  - [x] pm grant / pm revoke
-  - [x] am start
-  - [x] screencap
-  - [ ] dumpsys
-  - [ ] screenrecord
-  - [ ] rm
-
-
-
-## Useful errors
-
-All functions return a predefined error type, and it is highly recommended these errors are handled properly.
-
-## Context support
-
-All calls into this library support go's `context` functionality.
-Therefore, blocking calls can time out according to the caller's needs, and the returned error should be checked to see if a timeout occurred (`ErrExecTimeout`).
-
-## Simple example
+## Example
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "net"
-    "time"
+	"context"
+	"log"
+	"time"
 
-    "github.com/taigrr/adb"
+	"github.com/taigrr/adb"
 )
 
 func main() {
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    // Equivalent to `adb connect 192.168.2.5:5555` with a 10 second timeout
-    opts := adb.ConnOptions{ Address: net.IPAddr{IP: net.ParseIP("192.168.2.5")} }
-    dev, err := adb.Connect(ctx, opts)
-    if err != nil {
-        log.Fatalf("unable to connect to device %s: %v", opts.Address.String(), err)
-    }
-    defer func() {
-        if err := dev.Disconnect(ctx); err != nil {
-            log.Printf("disconnect failed: %v", err)
-        }
-    }()
-    stdout, stderr, errCode, err := dev.Shell(ctx, "ls")
-    if err != nil {
-        log.Fatalf("unable to shell into device %s: %v", opts.Address.String(), err)
-    }
-    log.Printf("Stdout: %s\nStderr: %s\n, ErrCode: %d", stdout, stderr, errCode)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := adb.New()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dev, err := client.Connect(ctx, "192.168.2.5")
+	if err != nil {
+		log.Fatalf("connect: %v", err)
+	}
+	defer dev.Disconnect(ctx)
+
+	res, err := dev.Shell(ctx, "ls", "/sdcard")
+	if err != nil {
+		log.Fatalf("shell: %v", err)
+	}
+	log.Printf("stdout: %s", res.StdoutString())
 }
 ```
 
+## Record/replay caveat
+
+`Record`/`Replay` go through `adb shell input`, which can only inject a single
+pointer. A recorded multi-finger gesture (pinch/zoom) is therefore decomposed
+into one swipe per finger and replayed **sequentially**, not simultaneously.
+
+True simultaneous multitouch *is* possible over adb by replaying the raw evdev
+stream (`sendevent`, or writing `struct input_event` records directly to
+`/dev/input/eventX`) with `ABS_MT_SLOT`/`ABS_MT_TRACKING_ID`. That path is not
+implemented here because it requires root (or the `shell` user to be in the
+`input` group) and device-specific `/dev/input` handling — the `input`-based
+path works on any authorized device without elevated permissions.
+
+## Context support
+
+All calls take a `context.Context`, so blocking calls can time out according to
+the caller's needs. Cancellation and deadline expiry surface as
+`context.Canceled` / `context.DeadlineExceeded` (matchable via `errors.Is`).
+
 ## License
 
-This project is licensed under the 0BSD License, written by [Rob Landley](https://github.com/landley).
-As such, you may use this library without restriction or attribution, but please don't pass it off as your own.
+This project is licensed under the 0BSD License, written by
+[Rob Landley](https://github.com/landley). You may use this library without
+restriction or attribution, but please don't pass it off as your own.
 Attribution, though not required, is appreciated.
 
 By contributing, you agree all code submitted also falls under the License.

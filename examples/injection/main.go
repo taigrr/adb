@@ -11,19 +11,22 @@ import (
 
 func main() {
 	ctx := context.TODO()
-	devs, err := adb.Devices(ctx)
+	client, err := adb.New()
+	if err != nil {
+		fmt.Printf("Error creating adb client: %v\n", err)
+		return
+	}
+	devs, err := client.Devices(ctx)
 	if err != nil {
 		fmt.Printf("Error enumerating devices: %v\n", err)
 		return
 	}
 	for _, dev := range devs {
-		if !dev.IsAuthorized {
-			fmt.Printf("Dev `%s` is not authorized, authorize it to continue.\n", dev.SerialNo)
+		if !dev.Authorized() {
+			fmt.Printf("Dev `%s` is not authorized, authorize it to continue.\n", dev.Serial())
 			continue
 		}
-		err := dev.Reboot(ctx)
-		if err != nil {
-			// handle error here
+		if err := dev.Reboot(ctx); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
 	}

@@ -3,355 +3,436 @@ package adb
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 )
 
-func Test_parseDevices(t *testing.T) {
-	type args struct {
-		stdout string
-	}
+func TestParseDevices(t *testing.T) {
+	c := &Client{}
 	tests := []struct {
-		name    string
-		args    args
-		want    []Device
-		wantErr bool
+		name   string
+		stdout string
+		want   []Device
 	}{
 		{
-			name: "no devices", args: args{stdout: `List of devices attached`},
-			wantErr: false,
-			want:    []Device{},
+			name:   "empty",
+			stdout: "List of devices attached\n",
+			want:   []Device{},
 		},
 		{
-			name: "1 auth dev", args: args{stdout: `List of devices attached
-19291FDEE0023W  device`},
-			wantErr: false,
-			want: []Device{
-				{IsAuthorized: true, SerialNo: "19291FDEE0023W", ConnType: USB},
-			},
+			name:   "usb authorized",
+			stdout: "List of devices attached\n19291FDEE0023W\tdevice\n",
+			want:   []Device{{client: c, serial: "19291FDEE0023W", transport: USB, authorized: true}},
 		},
 		{
-			name: "1 unauth dev", args: args{stdout: `List of devices attached
-HT75R0202681    unauthorized`},
-			wantErr: false,
-			want: []Device{
-				{IsAuthorized: false, SerialNo: "HT75R0202681", ConnType: USB},
-			},
+			name:   "usb unauthorized",
+			stdout: "List of devices attached\nHT75R0202681\tunauthorized\n",
+			want:   []Device{{client: c, serial: "HT75R0202681", transport: USB, authorized: false}},
 		},
 		{
-			name: "2 auth 1 unauth", args: args{stdout: `List of devices attached
-19291FDEE0023W  device
-9B061FFBA00BC9  device
-HT75R0202681    unauthorized`},
-			wantErr: false,
-			want: []Device{
-				{IsAuthorized: true, SerialNo: "19291FDEE0023W", ConnType: USB},
-				{IsAuthorized: true, SerialNo: "9B061FFBA00BC9", ConnType: USB},
-				{IsAuthorized: false, SerialNo: "HT75R0202681", ConnType: USB},
-			},
-		},
-		{
-			name:    "empty string",
-			args:    args{stdout: ""},
-			wantErr: false,
-			want:    []Device{},
-		},
-		{
-			name: "offline device",
-			args: args{stdout: `List of devices attached
-ABCD1234	offline`},
-			wantErr: false,
-			want: []Device{
-				{IsAuthorized: false, SerialNo: "ABCD1234", ConnType: USB},
-			},
-		},
-		{
-			name: "network device",
-			args: args{stdout: `List of devices attached
-192.168.1.10:5555  device`},
-			wantErr: false,
-			want: []Device{
-				{IsAuthorized: true, SerialNo: "192.168.1.10:5555", ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5555},
-			},
-		},
-		{
-			name: "extra whitespace lines",
-			args: args{stdout: `List of devices attached
-
-19291FDEE0023W  device
-
-`},
-			wantErr: false,
-			want: []Device{
-				{IsAuthorized: true, SerialNo: "19291FDEE0023W", ConnType: USB},
-			},
+			name:   "network",
+			stdout: "List of devices attached\n192.168.1.10:5555\tdevice\n",
+			want: []Device{{
+				client: c, serial: "192.168.1.10:5555", transport: Network, authorized: true,
+				addr: netip.MustParseAddrPort("192.168.1.10:5555"), hasAddr: true,
+			}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseDevices(tt.args.stdout)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseDevices() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
+			got := c.parseDevices(tt.stdout)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("parseDevices() = %v, want %v", got, tt.want)
+				t.Fatalf("parseDevices() = %#v, want %#v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestDevice_ConnString(t *testing.T) {
+func TestNormalizeAddr(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{in: "192.168.1.5", want: "192.168.1.5:5555"},
+		{in: "192.168.1.5:5556", want: "192.168.1.5:5556"},
+		{in: "mydevice.local", want: "mydevice.local:5555"},
+		{in: "phone:5555", want: "phone:5555"},
+		{in: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		got, err := normalizeAddr(tt.in)
+		if (err != nil) != tt.wantErr {
+			t.Fatalf("normalizeAddr(%q) err = %v, wantErr %v", tt.in, err, tt.wantErr)
+		}
+		if !tt.wantErr && got != tt.want {
+			t.Fatalf("normalizeAddr(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestConnect(t *testing.T) {
+	c, argsFile := fakeADB(t, "connected to 192.168.1.10:5555\n", "", 0)
+	dev, err := c.Connect(context.Background(), "192.168.1.10")
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	if dev.Serial() != "192.168.1.10:5555" || dev.Transport() != Network || !dev.Authorized() {
+		t.Fatalf("Connect() device = %#v", dev)
+	}
+	if got, want := readArgs(t, argsFile), []string{"connect", "192.168.1.10:5555"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Connect() args = %v, want %v", got, want)
+	}
+}
+
+func TestConnect_FailureOnStdout(t *testing.T) {
+	c, _ := fakeADB(t, "unable to connect to 192.168.1.10:5555\n", "", 0)
+	_, err := c.Connect(context.Background(), "192.168.1.10")
+	if !errors.Is(err, ErrCommandFailed) {
+		t.Fatalf("Connect() error = %v, want ErrCommandFailed", err)
+	}
+}
+
+func TestDisconnect_USBRejected(t *testing.T) {
+	c, _ := fakeADB(t, "", "", 0)
+	dev := fakeDevice(c, "SERIAL", USB)
+	if err := dev.Disconnect(context.Background()); !errors.Is(err, ErrNotNetworkDevice) {
+		t.Fatalf("Disconnect() error = %v, want ErrNotNetworkDevice", err)
+	}
+}
+
+func TestPair(t *testing.T) {
 	tests := []struct {
 		name string
-		dev  Device
-		want string
+		code string
+		want []string
 	}{
-		{
-			name: "default port",
-			dev:  Device{IP: net.IPAddr{IP: net.ParseIP("192.168.1.100")}},
-			want: "192.168.1.100:5555",
-		},
-		{
-			name: "custom port",
-			dev:  Device{IP: net.IPAddr{IP: net.ParseIP("10.0.0.5")}, Port: 5556},
-			want: "10.0.0.5:5556",
-		},
-		{
-			name: "ipv6",
-			dev:  Device{IP: net.IPAddr{IP: net.ParseIP("::1")}, Port: 5555},
-			want: "[::1]:5555",
-		},
+		{name: "with code", code: "123456", want: []string{"pair", "192.168.1.5:37013", "123456"}},
+		{name: "without code", code: "", want: []string{"pair", "192.168.1.5:37013"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.dev.ConnString()
-			if got != tt.want {
-				t.Errorf("ConnString() = %q, want %q", got, tt.want)
+			c, argsFile := fakeADB(t, "Successfully paired to 192.168.1.5:37013\n", "", 0)
+			if err := c.Pair(context.Background(), "192.168.1.5:37013", tt.code); err != nil {
+				t.Fatalf("Pair() error = %v", err)
+			}
+			if got := readArgs(t, argsFile); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("Pair() args = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_parseConnectedDevice(t *testing.T) {
+func TestShellArgsAndResult(t *testing.T) {
+	c, argsFile := fakeADB(t, "hello\n", "warn\n", 0)
+	dev := fakeDevice(c, "SERIAL123", Network)
+
+	res, err := dev.Shell(context.Background(), "echo", "hello")
+	if err != nil {
+		t.Fatalf("Shell() error = %v", err)
+	}
+	if res.StdoutString() != "hello\n" || res.Code != 0 {
+		t.Fatalf("Shell() result = %#v", res)
+	}
+	want := []string{"-s", "SERIAL123", "shell", "echo", "hello"}
+	if got := readArgs(t, argsFile); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Shell() args = %v, want %v", got, want)
+	}
+}
+
+func TestCommandError_Fields(t *testing.T) {
+	c, _ := fakeADB(t, "", "error: device not found\n", 1)
+	dev := fakeDevice(c, "SERIAL123", Network)
+
+	_, err := dev.Shell(context.Background(), "ls")
+	if !errors.Is(err, ErrDeviceNotFound) {
+		t.Fatalf("Shell() error = %v, want ErrDeviceNotFound", err)
+	}
+	var cmdErr *CommandError
+	if !errors.As(err, &cmdErr) {
+		t.Fatalf("Shell() error not a *CommandError: %v", err)
+	}
+	if cmdErr.Code != 1 {
+		t.Fatalf("CommandError.Code = %d, want 1", cmdErr.Code)
+	}
+}
+
+func TestDeviceCommandArgs(t *testing.T) {
 	tests := []struct {
-		name    string
-		stdout  string
-		want    Device
-		wantErr bool
+		name   string
+		stdout string
+		call   func(Device) error
+		want   []string
 	}{
-		{
-			name:   "connected",
-			stdout: "connected to 192.168.1.10:5555\n",
-			want:   Device{SerialNo: "192.168.1.10:5555", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5555},
-		},
-		{
-			name:   "already connected",
-			stdout: "already connected to 192.168.1.10:5555\n",
-			want:   Device{SerialNo: "192.168.1.10:5555", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5555},
-		},
-		{
-			name:   "connected ipv6",
-			stdout: "connected to [2001:db8::1]:5555\n",
-			want:   Device{SerialNo: "[2001:db8::1]:5555", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("2001:db8::1")}, Port: 5555},
-		},
-		{
-			name:    "unparseable output",
-			stdout:  "unable to connect to 192.168.1.10:5555\n",
-			wantErr: true,
-		},
+		{name: "reboot", call: func(d Device) error { return d.Reboot(context.Background()) }, want: []string{"-s", "S", "reboot"}},
+		{name: "remount", call: func(d Device) error { return d.Remount(context.Background()) }, want: []string{"-s", "S", "remount"}},
+		{name: "tcpip", call: func(d Device) error { return d.TCPIP(context.Background(), 5555) }, want: []string{"-s", "S", "tcpip", "5555"}},
+		{name: "wait", call: func(d Device) error { return d.WaitForDevice(context.Background()) }, want: []string{"-s", "S", "wait-for-device"}},
+		{name: "forward", call: func(d Device) error { return d.Forward(context.Background(), "tcp:8000", "tcp:9000") }, want: []string{"-s", "S", "forward", "tcp:8000", "tcp:9000"}},
+		{name: "reverse", call: func(d Device) error { return d.Reverse(context.Background(), "tcp:9000", "tcp:8000") }, want: []string{"-s", "S", "reverse", "tcp:9000", "tcp:8000"}},
+		{name: "uninstall", call: func(d Device) error { return d.Uninstall(context.Background(), "com.example") }, want: []string{"-s", "S", "uninstall", "com.example"}},
+		{name: "tap", call: func(d Device) error { return d.Tap(context.Background(), 10, 20) }, want: []string{"-s", "S", "shell", "input", "tap", "10", "20"}},
+		{name: "keyevent", call: func(d Device) error { return d.GoHome(context.Background()) }, want: []string{"-s", "S", "shell", "input", "keyevent", "KEYCODE_HOME"}},
+		{name: "input text", call: func(d Device) error { return d.InputText(context.Background(), "hello world") }, want: []string{"-s", "S", "shell", "input", "text", "hello%sworld"}},
+		{name: "setprop", call: func(d Device) error { return d.SetProp(context.Background(), "debug.foo", "1") }, want: []string{"-s", "S", "shell", "setprop", "debug.foo", "1"}},
+		{name: "grant", call: func(d Device) error {
+			return d.GrantPermission(context.Background(), "com.example", "android.permission.CAMERA")
+		}, want: []string{"-s", "S", "shell", "pm", "grant", "com.example", "android.permission.CAMERA"}},
+		{name: "start activity", call: func(d Device) error { return d.StartActivity(context.Background(), "com.example/.Main") }, want: []string{"-s", "S", "shell", "am", "start", "-n", "com.example/.Main"}},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseConnectedDevice(tt.stdout)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("parseConnectedDevice() error = %v, wantErr %v", err, tt.wantErr)
+			c, argsFile := fakeADB(t, tt.stdout, "", 0)
+			if err := tt.call(fakeDevice(c, "S", Network)); err != nil {
+				t.Fatalf("%s error = %v", tt.name, err)
 			}
-			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("parseConnectedDevice() = %v, want %v", got, tt.want)
+			if got := readArgs(t, argsFile); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("args = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestDevice_applyConnectedDevice(t *testing.T) {
-	t.Run("updates network metadata from adb output", func(t *testing.T) {
-		device := Device{ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("10.0.0.5")}, Port: 5555}
-		device.applyConnectedDevice("connected to 192.168.1.10:5556\n")
-
-		want := Device{SerialNo: "192.168.1.10:5556", IsAuthorized: true, ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("192.168.1.10")}, Port: 5556}
-		if !reflect.DeepEqual(device, want) {
-			t.Fatalf("applyConnectedDevice() = %#v, want %#v", device, want)
-		}
-	})
-
-	t.Run("leaves device unchanged on unparseable output", func(t *testing.T) {
-		original := Device{SerialNo: "existing", ConnType: Network, IP: net.IPAddr{IP: net.ParseIP("10.0.0.5")}, Port: 5555}
-		device := original
-		device.applyConnectedDevice("unable to connect\n")
-
-		if !reflect.DeepEqual(device, original) {
-			t.Fatalf("applyConnectedDevice() mutated device: %#v != %#v", device, original)
-		}
-	})
-}
-
-func TestTapSequence_ShortenSleep(t *testing.T) {
-	seq := TapSequence{
-		Events: []Input{
-			SequenceTap{X: 100, Y: 200, Type: SeqTap},
-			SequenceSleep{Duration: time.Second * 4, Type: SeqSleep},
-			SequenceTap{X: 300, Y: 400, Type: SeqTap},
-		},
+func TestInstall(t *testing.T) {
+	apk := filepath.Join(t.TempDir(), "app.apk")
+	if err := os.WriteFile(apk, []byte("dex"), 0o600); err != nil {
+		t.Fatalf("write apk: %v", err)
 	}
-	shortened := seq.ShortenSleep(2)
-	if len(shortened.Events) != 3 {
-		t.Fatalf("expected 3 events, got %d", len(shortened.Events))
+	c, argsFile := fakeADB(t, "Success\n", "", 0)
+	if err := fakeDevice(c, "S", Network).Install(context.Background(), apk, true); err != nil {
+		t.Fatalf("Install() error = %v", err)
 	}
-	sleep, ok := shortened.Events[1].(SequenceSleep)
-	if !ok {
-		t.Fatal("expected second event to be SequenceSleep")
-	}
-	if sleep.Duration != time.Second*2 {
-		t.Errorf("expected sleep duration 2s, got %v", sleep.Duration)
+	want := []string{"-s", "S", "install", "-r", apk}
+	if got := readArgs(t, argsFile); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Install() args = %v, want %v", got, want)
 	}
 }
 
-func TestTapSequence_GetLength(t *testing.T) {
-	now := time.Now()
-	seq := TapSequence{
-		Events: []Input{
-			SequenceSleep{Duration: time.Second * 10, Type: SeqSleep},
-			SequenceSwipe{
-				X1: 0, Y1: 0, X2: 100, Y2: 100,
-				Start: now, End: now.Add(time.Second * 5),
-				Type: SeqSwipe,
-			},
-		},
+func TestInstall_FailureOnStdoutExitZero(t *testing.T) {
+	apk := filepath.Join(t.TempDir(), "app.apk")
+	if err := os.WriteFile(apk, []byte("dex"), 0o600); err != nil {
+		t.Fatalf("write apk: %v", err)
 	}
-	got := seq.GetLength()
-	// 15s * 110/100 = 16.5s
-	want := time.Second * 15 * 110 / 100
-	if got != want {
-		t.Errorf("GetLength() = %v, want %v", got, want)
+	c, _ := fakeADB(t, "Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]\n", "", 0)
+	err := fakeDevice(c, "S", Network).Install(context.Background(), apk, false)
+	if !errors.Is(err, ErrCommandFailed) {
+		t.Fatalf("Install() error = %v, want ErrCommandFailed", err)
 	}
 }
 
-func TestSequenceSleep_PlayHonorsContextCancellation(t *testing.T) {
+func TestInstall_MissingAPK(t *testing.T) {
+	c, _ := fakeADB(t, "", "", 0)
+	err := fakeDevice(c, "S", Network).Install(context.Background(), filepath.Join(t.TempDir(), "nope.apk"), false)
+	if err == nil {
+		t.Fatal("Install() expected error for missing APK")
+	}
+}
+
+func TestStartActivity_SuccessEchoesExceptionComponent(t *testing.T) {
+	c, _ := fakeADB(t, "Starting: Intent { cmp=com.example/.ExceptionHandlerActivity }\n", "", 0)
+	if err := fakeDevice(c, "S", Network).StartActivity(context.Background(), "com.example/.ExceptionHandlerActivity"); err != nil {
+		t.Fatalf("StartActivity() error = %v, want nil", err)
+	}
+}
+
+func TestStartActivity_WarningNotStarted(t *testing.T) {
+	c, _ := fakeADB(t, "Warning: Activity not started, unable to resolve Intent\n", "", 0)
+	if err := fakeDevice(c, "S", Network).StartActivity(context.Background(), "com.example/.Bad"); !errors.Is(err, ErrCommandFailed) {
+		t.Fatalf("StartActivity() error = %v, want ErrCommandFailed", err)
+	}
+}
+
+func TestState(t *testing.T) {
+	c, _ := fakeADB(t, "device\n", "", 0)
+	got, err := fakeDevice(c, "S", Network).State(context.Background())
+	if err != nil {
+		t.Fatalf("State() error = %v", err)
+	}
+	if got != "device" {
+		t.Fatalf("State() = %q, want %q", got, "device")
+	}
+}
+
+func TestScreencap(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "shot.png")
+	c, argsFile := fakeADB(t, "PNGDATA", "", 0)
+	if err := fakeDevice(c, "S", Network).Screencap(context.Background(), dest); err != nil {
+		t.Fatalf("Screencap() error = %v", err)
+	}
+	want := []string{"-s", "S", "exec-out", "screencap", "-p"}
+	if got := readArgs(t, argsFile); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Screencap() args = %v, want %v", got, want)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read screenshot: %v", err)
+	}
+	if string(data) != "PNGDATA" {
+		t.Fatalf("screenshot = %q", string(data))
+	}
+}
+
+func TestScreencap_DestExists(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(dest, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write dest: %v", err)
+	}
+	c, _ := fakeADB(t, "PNGDATA", "", 0)
+	if err := fakeDevice(c, "S", Network).Screencap(context.Background(), dest); !errors.Is(err, ErrDestExists) {
+		t.Fatalf("Screencap() error = %v, want ErrDestExists", err)
+	}
+}
+
+func TestListPackages(t *testing.T) {
+	c, _ := fakeADB(t, "package:com.android.settings\npackage:com.example.app\n", "", 0)
+	got, err := fakeDevice(c, "S", Network).ListPackages(context.Background())
+	if err != nil {
+		t.Fatalf("ListPackages() error = %v", err)
+	}
+	want := []string{"com.android.settings", "com.example.app"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListPackages() = %v, want %v", got, want)
+	}
+}
+
+func TestScreenResolution(t *testing.T) {
+	c, _ := fakeADB(t, "Physical size: 1440x3120\n", "", 0)
+	got, err := fakeDevice(c, "S", Network).ScreenResolution(context.Background())
+	if err != nil {
+		t.Fatalf("ScreenResolution() error = %v", err)
+	}
+	if got != (Resolution{Width: 1440, Height: 3120}) {
+		t.Fatalf("ScreenResolution() = %v", got)
+	}
+}
+
+func TestNew_NotInstalled(t *testing.T) {
+	// Point PATH at an empty dir so adb cannot be resolved.
+	t.Setenv("PATH", t.TempDir())
+	if _, err := New(); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("New() error = %v, want ErrNotInstalled", err)
+	}
+}
+
+func TestShell_SpawnFailureIsError(t *testing.T) {
+	// A client pointed at a nonexistent binary must surface a *CommandError
+	// (not silently succeed) for the spawn-failure path.
+	c := &Client{binary: filepath.Join(t.TempDir(), "does-not-exist")}
+	_, err := c.Device("S").Shell(context.Background(), "ls")
+	if err == nil {
+		t.Fatal("Shell() with missing binary expected error")
+	}
+	if _, ok := errors.AsType[*CommandError](err); !ok {
+		t.Fatalf("Shell() error = %v, want *CommandError", err)
+	}
+}
+
+func TestRun_ContextCancelledTakesPrecedence(t *testing.T) {
+	c, _ := fakeADB(t, "", "", 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-
-	start := time.Now()
-	err := (SequenceSleep{Duration: time.Second, Type: SeqSleep}).Play(ctx, Device{})
+	_, err := c.Device("S").Shell(ctx, "ls")
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("SequenceSleep.Play() error = %v, want context.Canceled", err)
-	}
-	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
-		t.Fatalf("SequenceSleep.Play() took %v after cancellation", elapsed)
+		t.Fatalf("Shell() error = %v, want context.Canceled", err)
 	}
 }
 
-func TestSequenceSleep_PlayCompletesAfterDuration(t *testing.T) {
-	err := (SequenceSleep{Duration: time.Millisecond, Type: SeqSleep}).Play(context.Background(), Device{})
+func TestClientDevice_Constructor(t *testing.T) {
+	c, _ := fakeADB(t, "", "", 0)
+
+	usb := c.Device("SERIAL123")
+	if usb.Serial() != "SERIAL123" || usb.Transport() != USB || !usb.Authorized() {
+		t.Fatalf("Device(usb) = %#v", usb)
+	}
+	if _, ok := usb.Addr(); ok {
+		t.Fatal("USB device should not report an address")
+	}
+
+	net := c.Device("192.168.1.10:5555")
+	if net.Transport() != Network {
+		t.Fatalf("Device(network) transport = %v", net.Transport())
+	}
+	if _, ok := net.Addr(); !ok {
+		t.Fatal("network device should report an address")
+	}
+}
+
+func TestZeroDeviceTransportUnknown(t *testing.T) {
+	var d Device
+	if d.Transport() != UnknownTransport {
+		t.Fatalf("zero Device transport = %v, want UnknownTransport", d.Transport())
+	}
+	if d.Transport().String() != "unknown" {
+		t.Fatalf("UnknownTransport.String() = %q", d.Transport().String())
+	}
+}
+
+func TestShell_NonZeroExitIsNotError(t *testing.T) {
+	c, _ := fakeADB(t, "", "", 1)
+	res, err := c.Device("S").Shell(context.Background(), "test", "-f", "/nope")
 	if err != nil {
-		t.Fatalf("SequenceSleep.Play() error = %v, want nil", err)
+		t.Fatalf("Shell() with device exit 1 should not error, got %v", err)
+	}
+	if res.Code != 1 {
+		t.Fatalf("Shell() Result.Code = %d, want 1", res.Code)
 	}
 }
 
-func TestTapSequence_JSONRoundTrip(t *testing.T) {
-	now := time.UnixMilli(1700000000000)
-	original := TapSequence{
-		Resolution: Resolution{Width: 1080, Height: 2340},
-		Events: []Input{
-			SequenceSwipe{
-				X1: 10, Y1: 20, X2: 30, Y2: 40,
-				Start: now, End: now.Add(time.Millisecond * 500),
-				Type: SeqSwipe,
-			},
-		},
+func TestShell_AdbFailureIsError(t *testing.T) {
+	c, _ := fakeADB(t, "", "error: device not found\n", 1)
+	if _, err := c.Device("S").Shell(context.Background(), "ls"); !errors.Is(err, ErrDeviceNotFound) {
+		t.Fatalf("Shell() error = %v, want ErrDeviceNotFound", err)
 	}
-	jsonBytes := original.ToJSON()
-	roundTripped, err := TapSequenceFromJSON(jsonBytes)
+}
+
+func TestScreenshot(t *testing.T) {
+	c, argsFile := fakeADB(t, "PNGDATA", "", 0)
+	data, err := c.Device("S").Screenshot(context.Background())
 	if err != nil {
-		t.Fatalf("TapSequenceFromJSON() error = %v", err)
+		t.Fatalf("Screenshot() error = %v", err)
 	}
-	if roundTripped.Resolution != original.Resolution {
-		t.Errorf("Resolution mismatch: got %v, want %v", roundTripped.Resolution, original.Resolution)
+	if string(data) != "PNGDATA" {
+		t.Fatalf("Screenshot() = %q", string(data))
 	}
-	if len(roundTripped.Events) != len(original.Events) {
-		t.Fatalf("Events length mismatch: got %d, want %d", len(roundTripped.Events), len(original.Events))
+	want := []string{"-s", "S", "exec-out", "screencap", "-p"}
+	if got := readArgs(t, argsFile); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Screenshot() args = %v, want %v", got, want)
 	}
 }
 
-func TestSequenceImporter_ToInput(t *testing.T) {
-	now := time.UnixMilli(1700000000000)
+func TestForwardReverseRemove(t *testing.T) {
 	tests := []struct {
-		name     string
-		importer SequenceImporter
-		wantType SeqType
+		name string
+		call func(Device) error
+		want []string
 	}{
-		{
-			name:     "sleep",
-			importer: SequenceImporter{Type: SeqSleep, Duration: time.Second},
-			wantType: SeqSleep,
-		},
-		{
-			name:     "tap",
-			importer: SequenceImporter{Type: SeqTap, X: 10, Y: 20, Start: now, End: now},
-			wantType: SeqTap,
-		},
-		{
-			name:     "swipe",
-			importer: SequenceImporter{Type: SeqSwipe, X1: 10, Y1: 20, X2: 30, Y2: 40, Start: now, End: now.Add(time.Second)},
-			wantType: SeqSwipe,
-		},
-		{
-			name:     "unknown defaults to sleep",
-			importer: SequenceImporter{Type: SeqType(99)},
-			wantType: SeqSleep,
-		},
+		{"remove forward", func(d Device) error { return d.RemoveForward(context.Background(), "tcp:8000") }, []string{"-s", "S", "forward", "--remove", "tcp:8000"}},
+		{"remove all forwards", func(d Device) error { return d.RemoveAllForwards(context.Background()) }, []string{"-s", "S", "forward", "--remove-all"}},
+		{"remove reverse", func(d Device) error { return d.RemoveReverse(context.Background(), "tcp:9000") }, []string{"-s", "S", "reverse", "--remove", "tcp:9000"}},
+		{"remove all reverses", func(d Device) error { return d.RemoveAllReverses(context.Background()) }, []string{"-s", "S", "reverse", "--remove-all"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			input := tt.importer.ToInput()
-			switch tt.wantType {
-			case SeqSleep:
-				if _, ok := input.(SequenceSleep); !ok {
-					t.Errorf("expected SequenceSleep, got %T", input)
-				}
-			case SeqTap:
-				if _, ok := input.(SequenceTap); !ok {
-					t.Errorf("expected SequenceTap, got %T", input)
-				}
-			case SeqSwipe:
-				if _, ok := input.(SequenceSwipe); !ok {
-					t.Errorf("expected SequenceSwipe, got %T", input)
-				}
+			c, argsFile := fakeADB(t, "", "", 0)
+			if err := tt.call(c.Device("S")); err != nil {
+				t.Fatalf("%s error = %v", tt.name, err)
+			}
+			if got := readArgs(t, argsFile); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("args = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestInsertSleeps(t *testing.T) {
-	now := time.UnixMilli(1000)
-	inputs := []Input{
-		SequenceTap{X: 1, Y: 2, Start: now, End: now.Add(time.Millisecond * 100), Type: SeqTap},
-		SequenceTap{X: 3, Y: 4, Start: now.Add(time.Millisecond * 500), End: now.Add(time.Millisecond * 600), Type: SeqTap},
+func TestStartServer(t *testing.T) {
+	c, argsFile := fakeADB(t, "", "", 0)
+	if err := c.StartServer(context.Background()); err != nil {
+		t.Fatalf("StartServer() error = %v", err)
 	}
-	result := insertSleeps(inputs)
-	// Should be: tap, sleep, tap
-	if len(result) != 3 {
-		t.Fatalf("expected 3 events, got %d", len(result))
-	}
-	sleep, ok := result[1].(SequenceSleep)
-	if !ok {
-		t.Fatal("expected second event to be SequenceSleep")
-	}
-	// Sleep should be from end of first (100ms) to end of second (600ms) = 500ms
-	if sleep.Duration != time.Millisecond*500 {
-		t.Errorf("expected sleep duration 500ms, got %v", sleep.Duration)
+	if got := readArgs(t, argsFile); !reflect.DeepEqual(got, []string{"start-server"}) {
+		t.Fatalf("StartServer() args = %v", got)
 	}
 }
