@@ -7,6 +7,11 @@ This tool tries to take guesswork out of arbitrarily shelling out to `adb` by pr
 `adb` must be installed and available in your `PATH`. At this time, while this library may work on Windows or macOS, only Linux is supported.
 If you would like to add support for Windows, macOS, *BSD, etc., please [Submit a Pull Request](https://github.com/taigrr/adb/pulls).
 
+> **A redesigned v2 is available at [`github.com/taigrr/adb/v2`](./v2).**
+> v2 introduces a `Client`-based API, an opaque immutable `Device`, a single
+> `Result` return from `Shell`, and richer typed errors. New code is encouraged
+> to use v2; this v1 module remains supported.
+
 ## What is adb
 
 `adb`, the Android Debug Bridge, is a command-line program which allows a user to remote-control and debug Android devices.

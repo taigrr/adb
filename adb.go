@@ -36,7 +36,6 @@ type Device struct {
 	ConnType     Connection
 	IP           net.IPAddr
 	Port         uint
-	FileHandle   string // TODO change this to a discrete type
 }
 
 // ConnOptions provides the connection parameters used by [Connect].
@@ -50,7 +49,6 @@ type ConnOptions struct {
 //
 // This will return a Device struct, which can be used to call other methods.
 // If the connection fails or cannot complete on time, Connect will return an error.
-// TODO
 func Connect(ctx context.Context, opts ConnOptions) (Device, error) {
 	device := Device{
 		ConnType: Network,
@@ -126,7 +124,6 @@ func Devices(ctx context.Context) ([]Device, error) {
 	return parseDevices(stdout)
 }
 
-// TODO add support for connected network devices
 func parseDevices(stdout string) ([]Device, error) {
 	devs := []Device{}
 	for line := range strings.SplitSeq(stdout, "\n") {

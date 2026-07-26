@@ -25,10 +25,17 @@ go get github.com/taigrr/adb/v2
 
 ## Record/replay caveat
 
-`adb shell input` can only inject single-touch taps and swipes, so a recorded
-multi-finger gesture (pinch/zoom) is decomposed into one swipe per finger and
-replayed **sequentially**, not simultaneously. True multitouch cannot be
-reproduced through adb.
+`Record`/`Replay` here go through `adb shell input`, which can only inject a
+single pointer. A recorded multi-finger gesture (pinch/zoom) is therefore
+decomposed into one swipe per finger and replayed **sequentially**, not
+simultaneously.
+
+True simultaneous multitouch *is* possible over adb by replaying the raw evdev
+stream (`sendevent`, or writing `struct input_event` records directly to
+`/dev/input/eventX`) with `ABS_MT_SLOT`/`ABS_MT_TRACKING_ID`. That path is not
+implemented here because it requires root (or the `shell` user to be in the
+`input` group) and device-specific `/dev/input` handling — the `input`-based
+path above works on any authorized device without elevated permissions.
 
 ## Releasing
 

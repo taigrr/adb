@@ -271,14 +271,16 @@ func (d Device) CaptureSequence(ctx context.Context) (t TapSequence, err error) 
 	if err != nil {
 		return
 	}
-	// this command will never finish without ctx expiring. As a result,
-	// it will always return error code 130 if successful
-	stdout, _, errCode, err := execute(ctx, []string{"-s", string(d.SerialNo), "shell", "getevent", "-tl"})
-	// TODO better error checking here
+	// This command never finishes on its own; it only returns once ctx
+	// expires, which surfaces as ErrUnspecified (exit code 130). That is the
+	// expected stop condition and is not treated as an error.
+	stdout, _, _, err := execute(ctx, []string{"-s", string(d.SerialNo), "shell", "getevent", "-tl"})
 	if errors.Is(err, ErrUnspecified) {
 		err = nil
 	}
-	_ = errCode
+	if err != nil {
+		return TapSequence{}, err
+	}
 
 	if stdout == "" {
 		return TapSequence{}, ErrStdoutEmpty

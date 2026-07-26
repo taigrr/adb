@@ -1,0 +1,9 @@
+# Crush agent working directory / fetch cache
+.crush/
+
+# Compiled example binaries
+/examples/tapRecorder/tapRecorder
+
+# Go build/test artifacts
+*.test
+*.out
