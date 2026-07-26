@@ -71,9 +71,15 @@ type SequenceSleep struct {
 }
 
 func (s SequenceSleep) Play(d Device, ctx context.Context) error {
-	// TODO check if context is expired
-	time.Sleep(s.Duration)
-	return nil
+	timer := time.NewTimer(s.Duration)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s SequenceSleep) Length() time.Duration {
