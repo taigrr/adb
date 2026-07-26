@@ -8,11 +8,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/taigrr/adb"
 )
 
@@ -24,8 +25,8 @@ var (
 	titleStyle        = lipgloss.NewStyle().MarginLeft(2)
 	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
-	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
-	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+	paginationStyle   = list.DefaultStyles(true).PaginationStyle.PaddingLeft(4)
+	helpStyle         = list.DefaultStyles(true).HelpStyle.PaddingLeft(4).PaddingBottom(1)
 	quitTextStyle     = lipgloss.NewStyle().Margin(1, 0, 2, 4)
 )
 
@@ -132,7 +133,7 @@ func chooseDev(devs []string) string {
 	m.List.Styles.PaginationStyle = paginationStyle
 	m.List.Styles.HelpStyle = helpStyle
 
-	if err := tea.NewProgram(m).Start(); err != nil {
+	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
@@ -178,11 +179,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	if chosen != "" {
-		return quitTextStyle.Render("Chosen device: " + string(chosen))
+		return tea.NewView(quitTextStyle.Render("Chosen device: " + chosen))
 	}
-	return "\n" + m.List.View()
+	return tea.NewView("\n" + m.List.View())
 }
 
 type itemDelegate struct{}
@@ -198,8 +199,8 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	str := fmt.Sprintf("%d. %s", index+1, i)
 	fn := itemStyle.Render
 	if index == m.Index() {
-		fn = func(s string) string {
-			return selectedItemStyle.Render("> " + s)
+		fn = func(strs ...string) string {
+			return selectedItemStyle.Render("> " + strings.Join(strs, " "))
 		}
 	}
 
