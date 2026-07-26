@@ -245,7 +245,7 @@ func TestSequenceSleep_PlayHonorsContextCancellation(t *testing.T) {
 	cancel()
 
 	start := time.Now()
-	err := (SequenceSleep{Duration: time.Second, Type: SeqSleep}).Play(Device{}, ctx)
+	err := (SequenceSleep{Duration: time.Second, Type: SeqSleep}).Play(ctx, Device{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("SequenceSleep.Play() error = %v, want context.Canceled", err)
 	}
@@ -255,7 +255,7 @@ func TestSequenceSleep_PlayHonorsContextCancellation(t *testing.T) {
 }
 
 func TestSequenceSleep_PlayCompletesAfterDuration(t *testing.T) {
-	err := (SequenceSleep{Duration: time.Millisecond, Type: SeqSleep}).Play(Device{}, context.Background())
+	err := (SequenceSleep{Duration: time.Millisecond, Type: SeqSleep}).Play(context.Background(), Device{})
 	if err != nil {
 		t.Fatalf("SequenceSleep.Play() error = %v, want nil", err)
 	}

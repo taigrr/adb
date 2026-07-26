@@ -1,3 +1,6 @@
+// Package adb provides idiomatic, context-aware Go bindings for the Android
+// Debug Bridge (adb) command-line tool. The adb binary must be installed and
+// available on PATH.
 package adb
 
 import (
@@ -10,19 +13,23 @@ import (
 	"strings"
 )
 
+// Serial is the unique identifier adb uses to address a device. For USB
+// devices this is the hardware serial; for network devices it is the
+// host:port string.
 type Serial string
 
+// Connection describes how a device is attached to the host.
 type Connection int
 
 const (
+	// USB indicates a device attached over USB.
 	USB Connection = iota
+	// Network indicates a device attached over TCP/IP.
 	Network
 )
 
-// Create a Device with Connect() or a slice with Devices()
-//
-// Device contains the information necessary to connect to and
-// communicate with a device
+// Device contains the information necessary to connect to and communicate with
+// a device. Create one with [Connect], or obtain a slice with [Devices].
 type Device struct {
 	IsAuthorized bool
 	SerialNo     Serial
@@ -32,7 +39,7 @@ type Device struct {
 	FileHandle   string // TODO change this to a discrete type
 }
 
-// Provides a connection string for Connect()
+// ConnOptions provides the connection parameters used by [Connect].
 type ConnOptions struct {
 	Address  net.IPAddr
 	Port     uint
@@ -68,6 +75,8 @@ func Connect(ctx context.Context, opts ConnOptions) (Device, error) {
 	return device, nil
 }
 
+// ConnString returns the host:port string used to address a network device,
+// defaulting the port to 5555 when unset.
 func (d Device) ConnString() string {
 	port := d.Port
 	if port == 0 {
@@ -76,7 +85,7 @@ func (d Device) ConnString() string {
 	return net.JoinHostPort(d.IP.String(), strconv.Itoa(int(port)))
 }
 
-// Connect to a previously discovered device.
+// Reconnect re-establishes a connection to a previously discovered device.
 //
 // This function is helpful when connecting to a device found from the Devices call
 // or when reconnecting to a previously connected device.
@@ -97,11 +106,12 @@ func (d Device) Reconnect(ctx context.Context) (Device, error) {
 	return d, nil
 }
 
-// Equivalent to running `adb devices`.
+// Devices returns the list of devices known to adb, equivalent to running
+// `adb devices`.
 //
-// This function returns a list of discovered devices, but note that they may not be connected.
-// It is recommended to call IsConnected() against the device you're interested in using and connect
-// if not already connected before proceeding.
+// Note that the returned devices may not be connected. It is recommended to
+// check the device you intend to use and connect if necessary before
+// proceeding.
 func Devices(ctx context.Context) ([]Device, error) {
 	cmd := []string{"devices"}
 	stdout, _, errcode, err := execute(ctx, cmd)
@@ -119,8 +129,7 @@ func Devices(ctx context.Context) ([]Device, error) {
 // TODO add support for connected network devices
 func parseDevices(stdout string) ([]Device, error) {
 	devs := []Device{}
-	lines := strings.Split(stdout, "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		words := strings.Fields(line)
 		if len(words) != 2 {
 			continue
@@ -157,18 +166,15 @@ func (d *Device) applyConnectedDevice(stdout string) {
 }
 
 func parseConnectedDevice(stdout string) (Device, error) {
-	lines := strings.Split(stdout, "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "connected to ") {
-			serial := strings.TrimPrefix(trimmed, "connected to ")
+		if serial, ok := strings.CutPrefix(trimmed, "connected to "); ok {
 			return parseNetworkDevice(serial)
 		}
-		if strings.HasPrefix(trimmed, "already connected to ") {
-			serial := strings.TrimPrefix(trimmed, "already connected to ")
+		if serial, ok := strings.CutPrefix(trimmed, "already connected to "); ok {
 			return parseNetworkDevice(serial)
 		}
 	}

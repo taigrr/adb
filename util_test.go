@@ -152,6 +152,16 @@ func TestDeviceDisconnect_UsesDefaultPort(t *testing.T) {
 	}
 }
 
+func TestDeviceShell_MapsStderrToTypedError(t *testing.T) {
+	withFakeADB(t, "", "error: device not found\n", "1")
+	device := Device{SerialNo: "SERIAL123"}
+
+	_, _, _, err := device.Shell(context.Background(), "ls")
+	if !errors.Is(err, ErrDeviceNotFound) {
+		t.Fatalf("Shell() error = %v, want ErrDeviceNotFound", err)
+	}
+}
+
 func netIP(t *testing.T, address string) net.IPAddr {
 	t.Helper()
 	ip := net.ParseIP(address)

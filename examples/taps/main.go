@@ -1,3 +1,5 @@
+// Command taps demonstrates capturing a touch sequence from a device and
+// replaying it with the adb package.
 package main
 
 import (
@@ -28,6 +30,9 @@ func main() {
 			return
 		}
 		fmt.Println("Sequence captured, replaying now...")
-		dev.ReplayTapSequence(context.TODO(), t)
+		if err := dev.ReplayTapSequence(context.TODO(), t); err != nil {
+			fmt.Printf("Error replaying sequence: %v\n", err)
+			return
+		}
 	}
 }

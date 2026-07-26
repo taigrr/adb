@@ -1,6 +1,6 @@
 module github.com/taigrr/adb/examples/tapRecorder
 
-go 1.19
+go 1.26.5
 
 replace github.com/taigrr/adb => ../..
 

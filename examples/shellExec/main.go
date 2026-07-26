@@ -1,3 +1,5 @@
+// Command shellExec demonstrates running a shell command on every authorized
+// device with the adb package.
 package main
 
 import (

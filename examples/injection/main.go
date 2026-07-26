@@ -1,3 +1,5 @@
+// Command injection demonstrates enumerating devices and rebooting each
+// authorized one with the adb package.
 package main
 
 import (

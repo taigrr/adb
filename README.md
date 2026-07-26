@@ -16,17 +16,30 @@ If you would like to add support for Windows, macOS, *BSD, etc., please [Submit 
 
 - [x] `adb connect`
 - [x] `adb disconnect`
+- [x] `adb pair` (Android 11+ wireless pairing)
+- [x] `adb tcpip`
 - [x] `adb shell <command>`
 - [x] `adb kill-server`
 - [x] `adb devices`
+- [x] `adb get-state`
+- [x] `adb wait-for-device`
 - [x] `adb pull`
-- [ ] `adb install`
+- [x] `adb install` / `adb install -r`
+- [x] `adb uninstall`
 - [x] `adb push`
+- [x] `adb forward` / `adb reverse`
 - [x] `adb reboot`
-- [x] `adb root`
+- [x] `adb root` / `adb unroot`
+- [x] `adb remount`
+- [x] `adb exec-out screencap` (save a screenshot)
 - [x] `adb shell input tap X Y`
+- [x] `adb shell input text`
 - [x] `adb shell input swipe X1 Y1 X2 Y2 duration`
-- [x] `adb shell input keyevent` (home, back, app switch)
+- [x] `adb shell input keyevent` (home, back, app switch, or arbitrary keycodes)
+- [x] `adb shell getprop` / `adb shell setprop`
+- [x] `adb shell pm list packages`
+- [x] `adb shell pm grant` / `adb shell pm revoke`
+- [x] `adb shell am start`
 - [x] `adb shell wm size` (screen resolution)
 - [x] `adb shell getevent` (capture and replay tap sequences)
 
@@ -39,10 +52,10 @@ Feel free to [Open an Issue](https://github.com/taigrr/adb/issues) or [Submit a 
   That is, you can connect to a device and get back a handler object and call functions against it with better error handling.
 
 - In addition to the connection commands, this library also has helper functions for many common shell commands, including:
-  - [ ] pm grant
-  - [ ] am start
+  - [x] pm grant / pm revoke
+  - [x] am start
+  - [x] screencap
   - [ ] dumpsys
-  - [ ] screencap
   - [ ] screenrecord
   - [ ] rm
 

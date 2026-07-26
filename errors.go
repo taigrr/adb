@@ -27,6 +27,10 @@ var (
 	ErrConnectionRefused = errors.New("connection refused")
 	// ErrMoreThanOneDevice is returned when multiple devices are connected and no serial is specified.
 	ErrMoreThanOneDevice = errors.New("more than one device/emulator; use -s to specify a device")
+	// ErrCommandFailed is returned when adb exits successfully but its output
+	// reports a failure (for example `Failure [INSTALL_FAILED_*]` or an
+	// on-device Exception).
+	ErrCommandFailed = errors.New("adb reported a failure in its output")
 	// ErrUnspecified is returned when the exact error cannot be determined.
 	ErrUnspecified = errors.New("an unknown error has occurred, please open an issue on GitHub")
 )

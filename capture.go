@@ -5,31 +5,34 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// CaptureSequence allows you to record a series of taps and swipes on the screen to replay later
-//
-// This function is useful if you need to run an obscure shell command or if
-// you require functionality not provided by the exposed functions here.
-// Instead of using Shell, please consider submitting a PR with the functionality
-// you require.
-
+// SeqType identifies the kind of event stored in a [SequenceImporter] or
+// produced by an [Input].
 type SeqType int
 
 const (
+	// SeqSwipe is a swipe gesture.
 	SeqSwipe SeqType = iota
+	// SeqTap is a single tap.
 	SeqTap
+	// SeqSleep is a pause between events.
 	SeqSleep
 )
 
+// TapSequenceImporter is the JSON-friendly representation of a [TapSequence].
+// It is used to (de)serialize sequences via [TapSequenceFromJSON].
 type TapSequenceImporter struct {
 	Events     []SequenceImporter
 	Resolution Resolution
 }
 
+// SequenceImporter is the JSON-friendly representation of a single [Input]
+// event. Only the fields relevant to its Type are populated.
 type SequenceImporter struct {
 	Duration time.Duration
 	Type     SeqType
@@ -43,6 +46,8 @@ type SequenceImporter struct {
 	End      time.Time
 }
 
+// ToInput converts the importer into the concrete [Input] implementation that
+// matches its Type.
 func (si SequenceImporter) ToInput() Input {
 	switch si.Type {
 	case SeqSleep:
@@ -65,12 +70,15 @@ func (si SequenceImporter) ToInput() Input {
 	}
 }
 
+// SequenceSleep is an [Input] that pauses for a fixed duration.
 type SequenceSleep struct {
 	Duration time.Duration
 	Type     SeqType
 }
 
-func (s SequenceSleep) Play(d Device, ctx context.Context) error {
+// Play waits for the sleep duration, returning early if ctx is cancelled.
+func (s SequenceSleep) Play(ctx context.Context, d Device) error {
+	_ = d
 	timer := time.NewTimer(s.Duration)
 	defer timer.Stop()
 
@@ -82,18 +90,22 @@ func (s SequenceSleep) Play(d Device, ctx context.Context) error {
 	}
 }
 
+// Length returns the sleep duration.
 func (s SequenceSleep) Length() time.Duration {
 	return s.Duration
 }
 
+// StartTime returns the zero time; sleeps carry no wall-clock timestamp.
 func (s SequenceSleep) StartTime() time.Time {
 	return time.Time{}
 }
 
+// EndTime returns the zero time; sleeps carry no wall-clock timestamp.
 func (s SequenceSleep) EndTime() time.Time {
 	return time.Time{}
 }
 
+// SequenceTap is an [Input] that taps a single point.
 type SequenceTap struct {
 	X     int
 	Y     int
@@ -102,22 +114,27 @@ type SequenceTap struct {
 	Type  SeqType
 }
 
-func (s SequenceTap) Play(d Device, ctx context.Context) error {
+// Play performs the tap on the device.
+func (s SequenceTap) Play(ctx context.Context, d Device) error {
 	return d.Tap(ctx, s.X, s.Y)
 }
 
+// Length returns zero; a tap is instantaneous.
 func (s SequenceTap) Length() time.Duration {
 	return 0
 }
 
+// StartTime returns the moment the tap began.
 func (s SequenceTap) StartTime() time.Time {
 	return s.Start
 }
 
+// EndTime returns the moment the tap ended.
 func (s SequenceTap) EndTime() time.Time {
 	return s.End
 }
 
+// SequenceSwipe is an [Input] that swipes from one point to another.
 type SequenceSwipe struct {
 	X1    int
 	Y1    int
@@ -128,43 +145,59 @@ type SequenceSwipe struct {
 	Type  SeqType
 }
 
-func (s SequenceSwipe) Play(d Device, ctx context.Context) error {
+// Play performs the swipe on the device.
+func (s SequenceSwipe) Play(ctx context.Context, d Device) error {
 	return d.Swipe(ctx, s.X1, s.Y1, s.X2, s.Y2, s.Length())
 }
 
+// StartTime returns the moment the swipe began.
 func (s SequenceSwipe) StartTime() time.Time {
 	return s.Start
 }
 
+// EndTime returns the moment the swipe ended.
 func (s SequenceSwipe) EndTime() time.Time {
 	return s.End
 }
 
+// Length returns the swipe's duration.
 func (s SequenceSwipe) Length() time.Duration {
 	return s.End.Sub(s.Start)
 }
 
+// Input is a single replayable event in a [TapSequence].
 type Input interface {
-	Play(d Device, ctx context.Context) error
+	// Play performs the event against the device.
+	Play(ctx context.Context, d Device) error
+	// Length reports how long the event itself takes.
 	Length() time.Duration
+	// StartTime reports when the event began during capture.
 	StartTime() time.Time
+	// EndTime reports when the event ended during capture.
 	EndTime() time.Time
 }
 
+// TapSequence is a recorded series of taps, swipes, and sleeps that can be
+// replayed against a device.
 type TapSequence struct {
 	Events     []Input
 	Resolution Resolution
 }
+
+// Resolution is a device screen resolution in pixels.
 type Resolution struct {
 	Width  int
 	Height int
 }
 
+// ToJSON serializes the sequence to JSON.
 func (t TapSequence) ToJSON() []byte {
 	b, _ := json.Marshal(t)
 	return b
 }
 
+// TapSequenceFromJSON deserializes a sequence previously produced by
+// [TapSequence.ToJSON].
 func TapSequenceFromJSON(j []byte) (TapSequence, error) {
 	var ti TapSequenceImporter
 	var t TapSequence
@@ -179,18 +212,20 @@ func TapSequenceFromJSON(j []byte) (TapSequence, error) {
 	return t, nil
 }
 
-// ShortenSleep allows you to shorten all the sleep times between tap and swipe events.
+// ShortenSleep shortens all the sleep times between tap and swipe events.
 //
 // Provide a scalar value to divide the sleeps by. Providing `2` will halve all
 // sleep durations in the TapSequence. Swipe durations and tap durations are
 // unaffected.
-
 func (t TapSequence) ShortenSleep(scalar int) TapSequence {
+	if scalar <= 0 {
+		return t
+	}
 	seq := []Input{}
 	for _, s := range t.Events {
 		switch y := s.(type) {
 		case SequenceSleep:
-			y.Duration = y.Duration / time.Duration(scalar)
+			y.Duration /= time.Duration(scalar)
 			seq = append(seq, y)
 		default:
 			seq = append(seq, s)
@@ -212,9 +247,11 @@ func (t TapSequence) GetLength() time.Duration {
 	return duration * 110 / 100
 }
 
+// ReplayTapSequence replays every event in the sequence against the device in
+// order, stopping and returning on the first error.
 func (d Device) ReplayTapSequence(ctx context.Context, t TapSequence) error {
 	for _, e := range t.Events {
-		err := e.Play(d, ctx)
+		err := e.Play(ctx, d)
 		if err != nil {
 			return err
 		}
@@ -344,7 +381,7 @@ func (e eventSet) ToInput() (Input, error) {
 		endx, endy     int64
 	)
 	var err error
-	for i := 0; i < len(e); i++ {
+	for i := range e {
 		if xFound && yFound {
 			break
 		}
@@ -362,13 +399,12 @@ func (e eventSet) ToInput() (Input, error) {
 				return nil, err
 			}
 		}
-
 	}
 	if !xFound || !yFound {
 		return nil, ErrCoordinatesNotFound
 	}
 	xFound, yFound = false, false
-	for i := len(e) - 1; i >= 0; i-- {
+	for i := range slices.Backward(e) {
 		if xFound && yFound {
 			break
 		}
@@ -386,7 +422,6 @@ func (e eventSet) ToInput() (Input, error) {
 				return nil, err
 			}
 		}
-
 	}
 	swipe.X1 = int(startx)
 	swipe.X2 = int(endx)
