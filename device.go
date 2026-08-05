@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 )
 
@@ -221,7 +222,13 @@ func normalizeAddr(addr string) (string, error) {
 		if host == "" || port == "" {
 			return "", fmt.Errorf("invalid device address %q", addr)
 		}
+		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+			return "", fmt.Errorf("invalid device address %q", addr)
+		}
 		return addr, nil
+	}
+	if strings.Contains(addr, ":") {
+		return "", fmt.Errorf("invalid device address %q", addr)
 	}
 	return net.JoinHostPort(addr, "5555"), nil
 }
