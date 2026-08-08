@@ -24,9 +24,9 @@ jobs:
           go-version-file: go.mod
       - name: gofmt check
         run: test -z "$(gofmt -l .)" || { echo "gofmt found unformatted files:"; gofmt -l .; exit 1; }
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.10.1
       - name: format check
         run: golangci-lint fmt --diff
       - name: go mod tidy check
