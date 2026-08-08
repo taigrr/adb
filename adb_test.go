@@ -59,9 +59,14 @@ func TestNormalizeAddr(t *testing.T) {
 	}{
 		{in: "192.168.1.5", want: "192.168.1.5:5555"},
 		{in: "192.168.1.5:5556", want: "192.168.1.5:5556"},
+		{in: "2001:db8::1", want: "[2001:db8::1]:5555"},
+		{in: "[2001:db8::1]:5556", want: "[2001:db8::1]:5556"},
 		{in: "mydevice.local", want: "mydevice.local:5555"},
 		{in: "phone:5555", want: "phone:5555"},
 		{in: "", wantErr: true},
+		{in: "phone:", wantErr: true},
+		{in: "phone:not-a-port", wantErr: true},
+		{in: "phone:70000", wantErr: true},
 	}
 	for _, tt := range tests {
 		got, err := normalizeAddr(tt.in)
