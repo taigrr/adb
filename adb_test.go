@@ -67,6 +67,8 @@ func TestNormalizeAddr(t *testing.T) {
 		{in: "phone:", wantErr: true},
 		{in: "phone:not-a-port", wantErr: true},
 		{in: "phone:70000", wantErr: true},
+		{in: "phone:0", wantErr: true},
+		{in: "192.168.1.5:0", wantErr: true},
 	}
 	for _, tt := range tests {
 		got, err := normalizeAddr(tt.in)

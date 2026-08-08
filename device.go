@@ -212,6 +212,9 @@ func normalizeAddr(addr string) (string, error) {
 	}
 	// IP or IP:port.
 	if ap, err := netip.ParseAddrPort(addr); err == nil {
+		if ap.Port() == 0 {
+			return "", fmt.Errorf("invalid device address %q", addr)
+		}
 		return ap.String(), nil
 	}
 	if ip, err := netip.ParseAddr(addr); err == nil {
@@ -222,7 +225,7 @@ func normalizeAddr(addr string) (string, error) {
 		if host == "" || port == "" {
 			return "", fmt.Errorf("invalid device address %q", addr)
 		}
-		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+		if n, err := strconv.ParseUint(port, 10, 16); err != nil || n == 0 {
 			return "", fmt.Errorf("invalid device address %q", addr)
 		}
 		return addr, nil
