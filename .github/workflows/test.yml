@@ -15,6 +15,35 @@ jobs:
       - run: go vet ./...
       - run: go build ./...
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt check
+        run: test -z "$(gofmt -l .)" || { echo "gofmt found unformatted files:"; gofmt -l .; exit 1; }
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+      - name: format check
+        run: golangci-lint fmt --diff
+      - name: go mod tidy check
+        run: go mod tidy && git diff --exit-code
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
   examples:
     runs-on: ubuntu-latest
     steps:
