@@ -220,6 +220,12 @@ func normalizeAddr(addr string) (string, error) {
 	if ip, err := netip.ParseAddr(addr); err == nil {
 		return netip.AddrPortFrom(ip, 5555).String(), nil
 	}
+	if strings.HasPrefix(addr, "[") && strings.HasSuffix(addr, "]") {
+		unbracketed := strings.TrimSuffix(strings.TrimPrefix(addr, "["), "]")
+		if ip, err := netip.ParseAddr(unbracketed); err == nil {
+			return netip.AddrPortFrom(ip, 5555).String(), nil
+		}
+	}
 	// Hostname, optionally with a port.
 	if host, port, err := net.SplitHostPort(addr); err == nil {
 		if host == "" || port == "" {
