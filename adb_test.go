@@ -293,6 +293,17 @@ func TestScreencap_DestExists(t *testing.T) {
 	}
 }
 
+func TestPull_DestExists(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "pulled.txt")
+	if err := os.WriteFile(dest, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write dest: %v", err)
+	}
+	c, _ := fakeADB(t, "", "", 0)
+	if err := fakeDevice(c, "S", Network).Pull(context.Background(), "/sdcard/pulled.txt", dest); !errors.Is(err, ErrDestExists) {
+		t.Fatalf("Pull() error = %v, want ErrDestExists", err)
+	}
+}
+
 func TestListPackages(t *testing.T) {
 	c, _ := fakeADB(t, "package:com.android.settings\npackage:com.example.app\n", "", 0)
 	got, err := fakeDevice(c, "S", Network).ListPackages(context.Background())
