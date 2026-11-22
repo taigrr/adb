@@ -56,9 +56,9 @@ func (d Device) Push(ctx context.Context, src, dest string) error {
 }
 
 // Pull copies a file from the device to dest, equivalent to `adb pull`. It
-// returns [ErrDestExists] if dest already exists.
+// returns [ErrDestExists] if dest already exists, including a dangling symlink.
 func (d Device) Pull(ctx context.Context, src, dest string) error {
-	if _, err := os.Stat(dest); err == nil {
+	if _, err := os.Lstat(dest); err == nil {
 		return ErrDestExists
 	} else if !os.IsNotExist(err) {
 		return err
